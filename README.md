@@ -21,6 +21,7 @@ Open `/` for the workspace or `/admin` for the management command center.
 - Admin command center with named staff attendance records, check-in/check-out actions, duplicate-check-in protection, late/missing/approved-leave states, workload context and attention signals.
 - Deterministic double-entry accounting sample with journal entries, ledger, trial balance, balance sheet, income statement and cash flow calculations. Unbalanced entries are rejected before insertion.
 - Document-intelligence review state with extracted transaction preview, unusual-item flag and explicit human approval gate before future accounting conversion.
+- Client evidence intake inside each client record: upload PDF, CSV or TXT files, server-side text/PDF extraction, GPT-5 Mini structured analysis when the configured provider is available, transaction-like row detection, warnings and a reviewable upload history.
 - Read-only assistant tools for clients, engagements, tasks, deadlines, workload, activity, attendance, management overview and accounting summaries. Assistant answers are generated from server-side retrieved records, not canned UI responses.
 - Supabase PostgreSQL migrations and RLS policies under `supabase/`, plus idempotent managed-development migrations/seed scripts under `db/`.
 
