@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'BKM Operations Hub',
-  description: 'BKM Associates internal operations demonstration environment',
+  title: 'BKM Associates | Operations Control Room',
+  description: 'A focused internal control room for BKM Audit, Tax and Advisory delivery.',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
