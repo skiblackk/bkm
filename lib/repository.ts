@@ -131,6 +131,7 @@ export function updateTask(taskId: string, patch: { status?: TaskStatus; assigne
   if (patch.assignedTo) task.assignedTo = patch.assignedTo;
   task.updatedAt = '01 Oct 2026';
   store.activities.unshift({ id: `activity-${Date.now()}`, type: patch.status === 'Completed' ? 'Task completed' : 'Status changed', description: `${task.title} updated in the demonstration environment`, actor: 'Demo Manager', timestamp: 'Just now', recordType: 'Task', recordId: task.id });
+  recordAudit({ actorId: 'system', actorName: 'BKM Operations Hub', actorRole: 'System', action: patch.status === 'Completed' ? 'complete_task' : 'update_task', targetType: 'Task', targetId: task.id, detail: `${task.title} changed${patch.assignedTo ? ` and assigned to ${patch.assignedTo}` : ''}`, severity: 'change' });
   return getSnapshot();
 }
 
@@ -139,6 +140,7 @@ export function createQuotation(input: { clientId: string; service: string; desc
   const quotation: Quotation = { id: `quote-${Date.now()}`, ...input, status: 'Ready for review', createdAt: '01 Oct 2026' };
   store.quotations.unshift(quotation);
   store.activities.unshift({ id: `activity-${Date.now()}-quote`, type: 'Status changed', description: 'Demonstration quotation prepared for review', actor: 'Demo Manager', timestamp: 'Just now', recordType: 'Client', recordId: input.clientId });
+  recordAudit({ actorId: 'system', actorName: 'BKM Operations Hub', actorRole: 'System', action: 'create_quotation', targetType: 'Quotation', targetId: quotation.id, detail: 'A quotation was prepared for review', severity: 'change' });
   return getSnapshot();
 }
 
@@ -147,6 +149,7 @@ export function createReport(input: { clientId: string; engagementId: string; re
   const report: ReportRecord = { id: `report-${Date.now()}`, ...input, status: 'Draft / Demonstration', createdAt: '01 Oct 2026' };
   store.reports.unshift(report);
   store.activities.unshift({ id: `activity-${Date.now()}-report`, type: 'Status changed', description: 'Draft demonstration report generated', actor: 'Demo Manager', timestamp: 'Just now', recordType: 'Engagement', recordId: input.engagementId });
+  recordAudit({ actorId: 'system', actorName: 'BKM Operations Hub', actorRole: 'System', action: 'create_report', targetType: 'Report', targetId: report.id, detail: 'A draft report was generated', severity: 'change' });
   return { snapshot: getSnapshot(), report };
 }
 
