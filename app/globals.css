@@ -8,4 +8,18 @@ body { margin: 0; color: var(--ink); background: var(--canvas); font-family: Int
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 ::selection { color: white; background: #111743; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes grow { from { transform: scaleX(0); transform-origin: left; } to { transform: scaleX(1); transform-origin: left; } }
+@keyframes float { 0%,100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-5px) rotate(4deg); } }
+@keyframes dash { to { stroke-dashoffset: -60; } }
+@keyframes pingSlow { 0%,100% { opacity: .1; transform: scale(.85); transform-origin: center; } 50% { opacity: .65; transform: scale(1.35); transform-origin: center; } }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.animate-rise { animation: rise .55s cubic-bezier(.22,1,.36,1) both; }
+.animate-grow { animation: grow .9s cubic-bezier(.22,1,.36,1) both; transform-origin: left; }
+.animate-float { animation: float 2.4s ease-in-out infinite; }
+.animate-dash { animation: dash 4s linear infinite; }
+.animate-ping-slow { animation: pingSlow 2.4s ease-in-out infinite; }
+.animate-plane { animation: float 2.2s ease-in-out infinite; transform-origin: center; }
+.animate-fade { animation: fade .45s ease-out both; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }
 @layer components { .panel { @apply rounded-[12px] border border-line bg-white shadow-panel; } .eyebrow { @apply text-[10px] font-semibold uppercase tracking-[0.17em] text-slate-500; } .section-title { @apply text-[15px] font-semibold tracking-[-0.01em] text-ink; } .status-dot { @apply inline-block h-2 w-2 rounded-full; } .tabular { font-variant-numeric: tabular-nums; } }
