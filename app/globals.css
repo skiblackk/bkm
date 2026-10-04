@@ -30,5 +30,17 @@ button:active { transform: translateY(1px); }
 .animate-shimmer { background-size: 200% 100%; animation: shimmer 3s linear infinite; }
 .panel { transition: transform .28s cubic-bezier(.22,1,.36,1), box-shadow .28s ease, border-color .28s ease; }
 .panel:hover { border-color: rgba(244,180,27,.35); box-shadow: 0 18px 45px rgba(17,23,67,.08); }
+.panel-3d { transform-style: preserve-3d; perspective: 1100px; box-shadow: 0 8px 0 rgba(17,23,67,.04), 0 18px 36px rgba(17,23,67,.08); }
+.panel-3d:hover { transform: translateY(-4px) rotateX(1deg); box-shadow: 0 12px 0 rgba(17,23,67,.05), 0 26px 48px rgba(17,23,67,.14); }
+.panel-3d::after { content: ''; position: absolute; inset: 1px; border-radius: inherit; pointer-events: none; background: linear-gradient(135deg, rgba(255,255,255,.5), transparent 32%); opacity: .7; }
+.btn-3d { box-shadow: 0 4px 0 rgba(17,23,67,.18), 0 10px 18px rgba(17,23,67,.1); transition: transform .2s ease, box-shadow .2s ease, background-color .2s ease; }
+.btn-3d:hover { transform: translateY(-2px); box-shadow: 0 6px 0 rgba(17,23,67,.18), 0 16px 24px rgba(17,23,67,.14); }
+.btn-3d:active { transform: translateY(1px); box-shadow: 0 2px 0 rgba(17,23,67,.18), 0 5px 10px rgba(17,23,67,.1); }
+.bkm-placeholder { background: linear-gradient(145deg, #111743 0%, #26316f 64%, #f4b41b 65%, #f4b41b 100%); box-shadow: 0 5px 0 rgba(17,23,67,.2), 0 12px 22px rgba(17,23,67,.16); }
+.task-table { table-layout: fixed; }
+.task-table th, .task-table td { vertical-align: middle; }
+.task-table .task-title { white-space: normal; overflow-wrap: anywhere; }
+.task-table .task-assignee { min-width: 150px; }
+.task-table .task-status { min-width: 142px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }
 @layer components { .panel { @apply rounded-[14px] border border-line bg-white shadow-panel; position: relative; overflow: hidden; } .panel::before { content: ''; position: absolute; inset: 0 0 auto; height: 1px; background: linear-gradient(90deg, transparent, rgba(244,180,27,.45), transparent); opacity: .55; pointer-events: none; } .eyebrow { @apply text-[10px] font-semibold uppercase tracking-[0.17em] text-slate-500; } .section-title { @apply text-[15px] font-semibold tracking-[-0.01em] text-ink; } .status-dot { @apply inline-block h-2 w-2 rounded-full; } .tabular { font-variant-numeric: tabular-nums; } }
