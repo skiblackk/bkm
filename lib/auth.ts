@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 
 const demoAccounts = {
-  admin: { account: 'admin', name: 'BKM Administrator', role: 'System Administrator', initials: 'BA', isAdmin: true, staffId: null },
+  benjamin: { account: 'benjamin', name: 'Benjamin Kimani', role: 'System Administrator', initials: 'BK', isAdmin: true, staffId: null },
   david: { account: 'david', name: 'David Kamau', role: 'Audit Manager', initials: 'DK', isAdmin: false, staffId: 'staff-david' },
   mary: { account: 'mary', name: 'Mary Wanjiku', role: 'Senior Auditor', initials: 'MW', isAdmin: false, staffId: 'staff-mary' },
   faith: { account: 'faith', name: 'Faith Njeri', role: 'Audit Associate', initials: 'FN', isAdmin: false, staffId: 'staff-faith' },

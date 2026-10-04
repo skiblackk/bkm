@@ -53,3 +53,11 @@ Choose a seeded account on the login screen. These are demonstration sessions on
 4. Add accounting posting approvals, AR/AP, reconciliation and immutable financial audit history.
 5. Add DOCX generation, client portal, email/WhatsApp providers and notification preferences.
 6. Add rate limiting, monitoring, deployment configuration, security review and full automated test coverage.
+
+## Communication webhooks
+The protected admin command center exposes a normalized inbound alert endpoint for the three company channels:
+- Gmail: `POST /api/webhooks/communications?channel=gmail`
+- SMS: `POST /api/webhooks/communications?channel=sms`
+- WhatsApp / Respond.io: `POST /api/webhooks/communications?channel=whatsapp`
+
+Set `BKM_GMAIL_WEBHOOK_SECRET`, `BKM_SMS_WEBHOOK_SECRET`, and `BKM_WHATSAPP_WEBHOOK_SECRET` in production. Send the secret in `x-bkm-webhook-secret`. Incoming payloads may use `from`, `email`, `phone`, `subject`, `body`, `text`, or `message`; they are normalized into Benjamin’s review inbox. The demo intentionally does not auto-send replies.
