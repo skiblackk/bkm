@@ -133,3 +133,14 @@ export interface DashboardMetrics {
   upcomingDeadlines: number;
   pendingReviews: number;
 }
+
+export interface InternalMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  recipientId: string | 'all';
+  recipientName: string;
+  body: string;
+  createdAt: string;
+  kind: 'direct' | 'broadcast' | 'alert';
+}

@@ -1,5 +1,5 @@
 import { cloneSeedSnapshot } from './demo-data';
-import type { DashboardMetrics, DemoSnapshot, Quotation, QuotationItem, ReportRecord, TaskStatus } from './types';
+import type { DashboardMetrics, DemoSnapshot, InternalMessage, Quotation, QuotationItem, ReportRecord, TaskStatus } from './types';
 import { attendanceSeed, attendanceSettings } from './attendance-data';
 import type { AttendanceRecord, AccountingSnapshot, DocumentExtraction } from './extended-types';
 import { getAccountingSnapshot } from './accounting';
@@ -7,6 +7,10 @@ import { approveDocumentExtraction, getDocumentExtraction } from './document-int
 
 let snapshot: DemoSnapshot | undefined;
 let attendance: AttendanceRecord[] = JSON.parse(JSON.stringify(attendanceSeed)) as AttendanceRecord[];
+let internalMessages: InternalMessage[] = [
+  { id: 'msg-001', senderId: 'admin', senderName: 'BKM Administrator', recipientId: 'all', recipientName: 'All users', body: 'Please check in before starting client work today.', createdAt: '08:00', kind: 'broadcast' },
+  { id: 'msg-002', senderId: 'staff-david', senderName: 'David Kamau', recipientId: 'admin', recipientName: 'BKM Administrator', body: 'The ABC Manufacturing review pack is ready for your review.', createdAt: '08:15', kind: 'direct' },
+];
 
 function getStore(): DemoSnapshot {
   if (!snapshot) snapshot = cloneSeedSnapshot();
@@ -67,6 +71,24 @@ export function updateAttendance(staffId: string, action: 'check-in' | 'check-ou
   return getAttendance();
 }
 
+export function getInternalMessages() { return JSON.parse(JSON.stringify(internalMessages)) as InternalMessage[]; }
+export function sendInternalMessage(input: { senderId: string; senderName: string; recipientId: string | 'all'; recipientName: string; body: string; kind?: 'direct' | 'broadcast' | 'alert' }) {
+  const message: InternalMessage = { id: `msg-${Date.now()}`, senderId: input.senderId, senderName: input.senderName, recipientId: input.recipientId, recipientName: input.recipientName, body: input.body.trim(), createdAt: 'Just now', kind: input.kind ?? (input.recipientId === 'all' ? 'broadcast' : 'direct') };
+  if (!message.body) throw new Error('Message cannot be empty.');
+  internalMessages.unshift(message);
+  return message;
+}
+export function removeUser(staffId: string) {
+  const store = getStore();
+  const member = store.staff.find((item) => item.id === staffId);
+  if (!member) throw new Error('User was not found.');
+  store.staff = store.staff.filter((item) => item.id !== staffId);
+  store.tasks = store.tasks.map((task) => task.assignedTo === staffId ? { ...task, assignedTo: 'unassigned', updatedAt: '01 Oct 2026' } : task);
+  attendance = attendance.filter((record) => record.staffId !== staffId);
+  store.activities.unshift({ id: `activity-${Date.now()}`, type: 'Status changed', description: `${member.name} was removed from the demonstration workspace`, actor: 'BKM Administrator', timestamp: 'Just now', recordType: 'Task', recordId: staffId });
+  return getSnapshot();
+}
+export function assignTask(taskId: string, staffId: string) { return updateTask(taskId, { assignedTo: staffId }); }
 export function getAccounting(): AccountingSnapshot { return getAccountingSnapshot(); }
 export function getDocumentIntelligence(): DocumentExtraction { return getDocumentExtraction(); }
 export function approveDocument() { return approveDocumentExtraction(); }
