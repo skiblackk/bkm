@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getDemoSession } from '@/lib/auth';
-import { approveDocument, assignTask, getAccounting, getAttendance, getDocumentIntelligence, getInternalMessages, getSnapshot, removeUser, sendInternalMessage, updateAttendance } from '@/lib/repository';
+import { getDemoSession, listDemoAccounts, provisionDemoUser } from '@/lib/auth';
+import { addStaffMember, approveDocument, assignTask, getAccounting, getAttendance, getDocumentIntelligence, getInternalMessages, getSnapshot, removeUser, sendInternalMessage, updateAttendance } from '@/lib/repository';
+import { getAuditEvents, recordAudit } from '@/lib/repository';
 import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-webhooks';
 
 async function requireAdmin() {
@@ -16,7 +17,7 @@ export async function GET() {
   const snapshot = getSnapshot();
   const attendance = getAttendance();
   const missing = attendance.records.filter((record) => record.date === '2026-10-01' && record.status === 'Not Checked In').map((record) => snapshot.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId);
-  return NextResponse.json({ snapshot, attendance, missing, accounting: getAccounting(), document: getDocumentIntelligence(), messages: getInternalMessages(), webhooks: getWebhookStatus(), communicationAlerts: getCommunicationAlerts() });
+  return NextResponse.json({ snapshot, attendance, missing, accounting: getAccounting(), document: getDocumentIntelligence(), messages: getInternalMessages(), webhooks: getWebhookStatus(), communicationAlerts: getCommunicationAlerts(), users: listDemoAccounts(), audit: getAuditEvents() });
 }
 
 export async function POST(request: Request) {
@@ -29,6 +30,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ attendance: updateAttendance(input.staffId, input.mode, input.note) });
     }
     const admin = await requireAdmin();
+    if (input.action === 'create-user') {
+      const permissions = Array.isArray(input.permissions) ? input.permissions : JSON.parse(input.permissions ?? '[]');
+      if (!input.name || !input.email || !input.role || !Array.isArray(permissions)) throw new Error('Name, email, role and permissions are required.');
+      const user = provisionDemoUser({ name: input.name, email: input.email, role: input.role, permissions });
+      const snapshot = addStaffMember({ id: user.staffId ?? user.account, name: user.name, initials: user.initials, role: user.role, email: user.email ?? '', activeEngagements: 0, assignedTasks: 0, completedTasks: 0, overdueTasks: 0, availability: 100, color: '#4e6982', permissions: user.permissions });
+      recordAudit({ actorId: admin.account, actorName: admin.name, actorRole: admin.role, action: 'create_user', targetType: 'User', targetId: user.staffId ?? user.account, detail: `${user.name} created as ${user.role} with ${user.permissions.length} permissions`, severity: 'security' });
+      return NextResponse.json({ user, snapshot, audit: getAuditEvents() });
+    }
+    if (input.action === 'update-permissions') {
+      const user = listDemoAccounts().find((item) => item.account === input.account);
+      if (!user || user.isAdmin) throw new Error('Only non-administrator user permissions can be changed.');
+      user.permissions = input.permissions;
+      recordAudit({ actorId: admin.account, actorName: admin.name, actorRole: admin.role, action: 'update_permissions', targetType: 'User', targetId: user.staffId ?? user.account, detail: `Permissions updated for ${user.name}`, severity: 'security' });
+      return NextResponse.json({ users: listDemoAccounts(), audit: getAuditEvents() });
+    }
+    if (input.action === 'audit') return NextResponse.json({ audit: getAuditEvents({ actorId: input.actorId, action: input.filterAction }) });
     if (input.action === 'approve-document') return NextResponse.json({ document: approveDocument() });
     if (input.action === 'remove-user') return NextResponse.json({ snapshot: removeUser(input.staffId) });
     if (input.action === 'assign-task') return NextResponse.json({ snapshot: assignTask(input.taskId, input.staffId) });

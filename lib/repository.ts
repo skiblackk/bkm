@@ -4,13 +4,18 @@ import { attendanceSeed, attendanceSettings } from './attendance-data';
 import type { AttendanceRecord, AccountingSnapshot, DocumentExtraction } from './extended-types';
 import { getAccountingSnapshot } from './accounting';
 import { approveDocumentExtraction, getDocumentExtraction } from './document-intelligence';
+import type { AuditEvent, PermissionId, UserRole } from './access-control';
 
 let snapshot: DemoSnapshot | undefined;
 let attendance: AttendanceRecord[] = JSON.parse(JSON.stringify(attendanceSeed)) as AttendanceRecord[];
 let internalMessages: InternalMessage[] = [
-  { id: 'msg-001', senderId: 'admin', senderName: 'BKM Administrator', recipientId: 'all', recipientName: 'All users', body: 'Please check in before starting client work today.', createdAt: '08:00', kind: 'broadcast' },
-  { id: 'msg-002', senderId: 'staff-david', senderName: 'David Kamau', recipientId: 'admin', recipientName: 'BKM Administrator', body: 'The ABC Manufacturing review pack is ready for your review.', createdAt: '08:15', kind: 'direct' },
+  { id: 'msg-001', senderId: 'benjamin', senderName: 'Benjamin Kimani', recipientId: 'all', recipientName: 'All users', body: 'Please check in before starting client work today.', createdAt: '08:00', kind: 'broadcast' },
+  { id: 'msg-002', senderId: 'staff-david', senderName: 'David Kamau', recipientId: 'benjamin', recipientName: 'Benjamin Kimani', body: 'The ABC Manufacturing review pack is ready for your review.', createdAt: '08:15', kind: 'direct' },
 ];
+let auditEvents: AuditEvent[] = [];
+
+export function recordAudit(input: Omit<AuditEvent, 'id' | 'timestamp'>) { const event: AuditEvent = { ...input, id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, timestamp: new Date().toISOString() }; auditEvents.unshift(event); return event; }
+export function getAuditEvents(filters?: { actorId?: string; action?: string }) { return auditEvents.filter((event) => (!filters?.actorId || event.actorId === filters.actorId) && (!filters?.action || event.action === filters.action)).slice(0, 200); }
 
 function getStore(): DemoSnapshot {
   if (!snapshot) snapshot = cloneSeedSnapshot();
@@ -46,6 +51,12 @@ export function getSnapshot(): DemoSnapshot {
   return enrich(getStore());
 }
 
+export function addStaffMember(member: DemoSnapshot['staff'][number]) {
+  const store = getStore();
+  if (!store.staff.some((item) => item.id === member.id)) store.staff.push(member);
+  return getSnapshot();
+}
+
 export function getAttendance() {
   return { settings: attendanceSettings, records: JSON.parse(JSON.stringify(attendance)) as AttendanceRecord[] };
 }
@@ -68,6 +79,7 @@ export function updateAttendance(staffId: string, action: 'check-in' | 'check-ou
     record.checkOut = '17:00';
     record.durationMinutes = 530;
   }
+  recordAudit({ actorId: staffId, actorName: staffId, actorRole: 'Team member', action, targetType: 'Attendance', targetId: staffId, detail: `${action} recorded for ${staffId}`, severity: 'info' });
   return getAttendance();
 }
 
@@ -76,6 +88,7 @@ export function sendInternalMessage(input: { senderId: string; senderName: strin
   const message: InternalMessage = { id: `msg-${Date.now()}`, senderId: input.senderId, senderName: input.senderName, recipientId: input.recipientId, recipientName: input.recipientName, body: input.body.trim(), createdAt: 'Just now', kind: input.kind ?? (input.recipientId === 'all' ? 'broadcast' : 'direct') };
   if (!message.body) throw new Error('Message cannot be empty.');
   internalMessages.unshift(message);
+  recordAudit({ actorId: input.senderId, actorName: input.senderName, actorRole: input.senderId === 'benjamin' ? 'System Administrator' : 'Team member', action: message.kind === 'broadcast' ? 'broadcast_message' : 'send_message', targetType: 'Message', targetId: message.id, detail: `${message.kind === 'broadcast' ? 'Broadcast' : 'Direct message'} sent to ${message.recipientName}`, severity: 'info' });
   return message;
 }
 export function removeUser(staffId: string) {
@@ -85,10 +98,11 @@ export function removeUser(staffId: string) {
   store.staff = store.staff.filter((item) => item.id !== staffId);
   store.tasks = store.tasks.map((task) => task.assignedTo === staffId ? { ...task, assignedTo: 'unassigned', updatedAt: '01 Oct 2026' } : task);
   attendance = attendance.filter((record) => record.staffId !== staffId);
-  store.activities.unshift({ id: `activity-${Date.now()}`, type: 'Status changed', description: `${member.name} was removed from the demonstration workspace`, actor: 'BKM Administrator', timestamp: 'Just now', recordType: 'Task', recordId: staffId });
+  store.activities.unshift({ id: `activity-${Date.now()}`, type: 'Status changed', description: `${member.name} was removed from the demonstration workspace`, actor: 'Benjamin Kimani', timestamp: 'Just now', recordType: 'Task', recordId: staffId });
+  recordAudit({ actorId: 'benjamin', actorName: 'Benjamin Kimani', actorRole: 'System Administrator', action: 'remove_user', targetType: 'User', targetId: staffId, detail: `${member.name} was removed and their tasks were unassigned`, severity: 'security' });
   return getSnapshot();
 }
-export function assignTask(taskId: string, staffId: string) { return updateTask(taskId, { assignedTo: staffId }); }
+export function assignTask(taskId: string, staffId: string) { recordAudit({ actorId: 'benjamin', actorName: 'Benjamin Kimani', actorRole: 'System Administrator', action: 'assign_task', targetType: 'Task', targetId: taskId, detail: `Task assigned to ${staffId}`, severity: 'change' }); return updateTask(taskId, { assignedTo: staffId }); }
 export function getAccounting(): AccountingSnapshot { return getAccountingSnapshot(); }
 export function getDocumentIntelligence(): DocumentExtraction { return getDocumentExtraction(); }
 export function approveDocument() { return approveDocumentExtraction(); }

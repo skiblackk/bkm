@@ -16,6 +16,7 @@ export interface StaffMember {
   overdueTasks: number;
   availability: number;
   color: string;
+  permissions?: string[];
 }
 
 export interface Client {

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:seed": "node scripts/seed.mjs"
+    "db:seed": "node scripts/seed.mjs",
+    "e2e": "node scripts/e2e.mjs"
   },
   "dependencies": {
     "@types/node": "^22.10.2",
