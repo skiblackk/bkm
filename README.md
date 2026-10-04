@@ -61,3 +61,6 @@ The protected admin command center exposes a normalized inbound alert endpoint f
 - WhatsApp / Respond.io: `POST /api/webhooks/communications?channel=whatsapp`
 
 Set `BKM_GMAIL_WEBHOOK_SECRET`, `BKM_SMS_WEBHOOK_SECRET`, and `BKM_WHATSAPP_WEBHOOK_SECRET` in production. Send the secret in `x-bkm-webhook-secret`. Incoming payloads may use `from`, `email`, `phone`, `subject`, `body`, `text`, or `message`; they are normalized into Benjamin’s review inbox. The demo intentionally does not auto-send replies.
+
+## Container deployment
+The Webdev project is configured for server deployment through the root `Dockerfile`. The container listens on `PORT` (default `3000`) and starts the Next.js production server. `/api/health` is intentionally unauthenticated and returns a small JSON readiness response for the deployment health check.
