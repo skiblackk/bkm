@@ -1,22 +1,21 @@
 /**
  * Demo integration state.
  *
- * The Manus Gmail connector is enabled and has passed a read-only inbox test in
- * this task. Respond.io is enabled, but its workspace currently exposes no
- * WhatsApp or SMS channels. Production should replace this fixture with an
+ * Respond.io is enabled and its active workspace exposes an SMTP Gmail channel.
+ * The same workspace currently exposes no WhatsApp or SMS channels. Production should replace this fixture with an
  * OAuth-backed server-side integration record.
  */
 export function getIntegrationStatus() {
   return {
     gmail: {
       connected: true,
-      label: 'Connected · read test passed',
-      detail: 'Current authorized Gmail connector; company mailbox identity should be confirmed before sending.',
+      label: 'Connected via Respond.io · SMTP - Gmail',
+      detail: 'Respond.io channel 563627 is connected as SMTP - Gmail. Use this channel for email intake and approved replies.',
     },
     respondIo: {
       connected: true,
-      label: 'Respond.io enabled · no channels',
-      detail: 'No WhatsApp Business or SMS channel is connected in the current workspace.',
+      label: 'Respond.io enabled · Gmail channel connected',
+      detail: 'The current workspace has Gmail connected, but no WhatsApp Business or SMS channel.',
       whatsappChannels: 0,
       smsChannels: 0,
     },
