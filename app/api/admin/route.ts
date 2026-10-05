@@ -3,6 +3,7 @@ import { getDemoSession, listDemoAccounts, provisionDemoUser } from '@/lib/auth'
 import { addStaffMember, approveDocument, assignTask, getAccounting, getAttendance, getDocumentIntelligence, getInternalMessages, getSnapshot, removeUser, sendInternalMessage, updateAttendance } from '@/lib/repository';
 import { getAuditEvents, recordAudit } from '@/lib/repository';
 import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-webhooks';
+import { getIntegrationStatus } from '@/lib/integrations';
 
 async function requireAdmin() {
   const session = await getDemoSession();
@@ -17,7 +18,7 @@ export async function GET() {
   const snapshot = getSnapshot();
   const attendance = getAttendance();
   const missing = attendance.records.filter((record) => record.date === '2026-10-01' && record.status === 'Not Checked In').map((record) => snapshot.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId);
-  return NextResponse.json({ snapshot, attendance, missing, accounting: getAccounting(), document: getDocumentIntelligence(), messages: getInternalMessages(), webhooks: getWebhookStatus(), communicationAlerts: getCommunicationAlerts(), users: listDemoAccounts(), audit: getAuditEvents() });
+  return NextResponse.json({ snapshot, attendance, missing, accounting: getAccounting(), document: getDocumentIntelligence(), messages: getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts: getCommunicationAlerts(), users: listDemoAccounts(), audit: getAuditEvents() });
 }
 
 export async function POST(request: Request) {
