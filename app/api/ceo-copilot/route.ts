@@ -6,7 +6,7 @@ import { askCeoCopilot } from '@/lib/ceo-copilot';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const schema = z.object({ question: z.string().trim().min(2).max(4000), history: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(4000) })).max(12).optional() });
+const schema = z.object({ question: z.string().trim().min(2).max(4000), gmailEmail: z.string().trim().max(320).optional(), history: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(4000) })).max(12).optional() });
 
 export async function POST(request: Request) {
   const session = await getDemoSession();
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   if (!session.isAdmin || session.account !== 'benjamin') return NextResponse.json({ error: 'The CEO Copilot is available only in Benjamin Mutua’s administrator account.' }, { status: 403 });
   try {
     const input = schema.parse(await request.json());
-    return NextResponse.json(await askCeoCopilot(input.question, input.history ?? []));
+    return NextResponse.json(await askCeoCopilot(input.question, input.history ?? [], 0, input.gmailEmail));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'The CEO Copilot could not complete the request.' }, { status: 400 });
   }

@@ -1,5 +1,6 @@
 import { getAccounting, getAttendance, getSnapshot } from './repository';
 import { getCommunicationAlerts } from './communication-webhooks';
+import { listContactMessages } from './respond-io';
 import { getAiTriageItems } from './ai-triage';
 import { getConfiguredDemoDate, DEMO_PERIOD_LABEL } from './demo-config';
 
@@ -19,7 +20,7 @@ function repairJson(raw: string) {
   return output;
 }
 
-function buildContext() {
+async function buildContext(gmailEmail?: string) {
   const snapshot = getSnapshot();
   const accounting = getAccounting();
   const attendance = getAttendance();
@@ -27,6 +28,12 @@ function buildContext() {
   const todayAttendance = attendance.records.filter((item) => item.date === today).map(({ id, staffId, date, status, checkIn, checkOut, note }) => ({ id, staffId, date, status, checkIn, checkOut, note }));
   const tasks = snapshot.tasks.map(({ id, title, clientId, engagementId, assignedTo, priority, dueDate, status }) => ({ id, title, clientId, engagementId, assignedTo, priority, dueDate, status }));
   const triage = getAiTriageItems(getCommunicationAlerts()).map(({ id, channel, senderName, subject, message, priority, summary, status, createdAt }) => ({ id, channel, senderName, subject, message, priority, summary, status, createdAt }));
+  let gmailThread: unknown = null;
+  if (gmailEmail?.trim()) {
+    const identifier = gmailEmail.trim().includes(':') ? gmailEmail.trim() : `email:${gmailEmail.trim()}`;
+    const result = await listContactMessages(identifier, 20);
+    gmailThread = result.items.map((item) => ({ messageId: item.messageId, traffic: item.traffic, subject: item.message?.subject, text: item.message?.text, status: item.status }));
+  }
   return {
     demoDate: today,
     period: DEMO_PERIOD_LABEL,
@@ -36,15 +43,16 @@ function buildContext() {
     tasks,
     accounting: { incomeStatement: accounting.incomeStatement, balanceSheet: accounting.balanceSheet, cashFlow: accounting.cashFlow, trialBalance: accounting.trialBalance },
     messageTriage: triage,
+    gmailThread,
   };
 }
 
-export async function askCeoCopilot(question: string, history: Array<{ role: 'user' | 'assistant'; content: string }> = [], attempt = 0): Promise<CopilotResult> {
+export async function askCeoCopilot(question: string, history: Array<{ role: 'user' | 'assistant'; content: string }> = [], attempt = 0, gmailEmail?: string): Promise<CopilotResult> {
   const baseUrl = process.env.BUILT_IN_FORGE_API_URL || process.env.OPENAI_API_BASE;
   const apiKey = process.env.BUILT_IN_FORGE_API_KEY || process.env.OPENAI_API_KEY;
   const model = process.env.AI_MODEL || 'gpt-5-mini';
   if (!baseUrl || !apiKey) throw new Error('The live AI model is not configured in the server secret store.');
-  const context = buildContext();
+  const context = await buildContext(gmailEmail);
   const response = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -61,7 +69,7 @@ export async function askCeoCopilot(question: string, history: Array<{ role: 'us
   if (!response.ok) throw new Error(`The live AI model returned HTTP ${response.status}.`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const raw = payload.choices?.[0]?.message?.content?.trim();
-  if (!raw && attempt < 1) return askCeoCopilot(question, history, attempt + 1);
+  if (!raw && attempt < 1) return askCeoCopilot(question, history, attempt + 1, gmailEmail);
   if (!raw) throw new Error('The live AI model returned an empty response after retrying.');
   const normalized = raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
   let parsed: Omit<CopilotResult, 'model' | 'live'>;
