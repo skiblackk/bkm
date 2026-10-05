@@ -4,6 +4,7 @@ import { addStaffMember, approveDocument, assignTask, getAccounting, getAttendan
 import { getAuditEvents, recordAudit } from '@/lib/repository';
 import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-webhooks';
 import { getIntegrationStatus } from '@/lib/integrations';
+import { decideAiTriage, getAiTriageItems } from '@/lib/ai-triage';
 
 async function requireAdmin() {
   const session = await getDemoSession();
@@ -18,7 +19,8 @@ export async function GET() {
   const snapshot = getSnapshot();
   const attendance = getAttendance();
   const missing = attendance.records.filter((record) => record.date === '2026-10-01' && record.status === 'Not Checked In').map((record) => snapshot.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId);
-  return NextResponse.json({ snapshot, attendance, missing, accounting: getAccounting(), document: getDocumentIntelligence(), messages: getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts: getCommunicationAlerts(), users: listDemoAccounts(), audit: getAuditEvents() });
+  const communicationAlerts = getCommunicationAlerts();
+  return NextResponse.json({ snapshot, attendance, missing, accounting: getAccounting(), document: getDocumentIntelligence(), messages: getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: listDemoAccounts(), audit: getAuditEvents() });
 }
 
 export async function POST(request: Request) {
@@ -48,6 +50,13 @@ export async function POST(request: Request) {
     }
     if (input.action === 'audit') return NextResponse.json({ audit: getAuditEvents({ actorId: input.actorId, action: input.filterAction }) });
     if (input.action === 'approve-document') return NextResponse.json({ document: approveDocument() });
+    if (input.action === 'approve-ai-triage' || input.action === 'reject-ai-triage') {
+      if (!input.triageId) throw new Error('A triage item is required.');
+      const status = input.action === 'approve-ai-triage' ? 'Approved' : 'Rejected';
+      decideAiTriage(input.triageId, status, input.suggestedReply);
+      recordAudit({ actorId: admin.account, actorName: admin.name, actorRole: admin.role, action: input.action, targetType: 'Communication', targetId: input.triageId, detail: `AI triage draft ${status.toLowerCase()} by Benjamin Mutua`, severity: status === 'Approved' ? 'change' : 'info' });
+      return NextResponse.json({ aiTriage: getAiTriageItems(getCommunicationAlerts()), audit: getAuditEvents() });
+    }
     if (input.action === 'remove-user') return NextResponse.json({ snapshot: removeUser(input.staffId) });
     if (input.action === 'assign-task') return NextResponse.json({ snapshot: assignTask(input.taskId, input.staffId) });
     if (input.action === 'broadcast' || input.action === 'message-user') {
