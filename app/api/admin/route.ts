@@ -5,6 +5,7 @@ import { getAuditEvents, recordAudit } from '@/lib/repository';
 import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-webhooks';
 import { getIntegrationStatus } from '@/lib/integrations';
 import { decideAiTriage, getAiTriageItems } from '@/lib/ai-triage';
+import { getConfiguredDemoDate } from '@/lib/demo-config';
 
 async function requireAdmin() {
   const session = await getDemoSession();
@@ -18,7 +19,7 @@ export async function GET() {
   if (!session.isAdmin) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
   const snapshot = getSnapshot();
   const attendance = getAttendance();
-  const missing = attendance.records.filter((record) => record.date === '2026-10-01' && record.status === 'Not Checked In').map((record) => snapshot.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId);
+  const missing = attendance.records.filter((record) => record.date === getConfiguredDemoDate() && record.status === 'Not Checked In').map((record) => snapshot.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId);
   const communicationAlerts = getCommunicationAlerts();
   return NextResponse.json({ snapshot, attendance, missing, accounting: getAccounting(), document: getDocumentIntelligence(), messages: getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: listDemoAccounts(), audit: getAuditEvents() });
 }

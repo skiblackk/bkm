@@ -14,6 +14,13 @@ const demoAccounts: Record<string, DemoSession> = {
 export type DemoAccount = string;
 export function getDemoAccount(account: string | undefined): DemoSession | null { return account && demoAccounts[account] ? demoAccounts[account] : null; }
 export function listDemoAccounts() { return Object.values(demoAccounts).map((account) => ({ ...account, permissions: [...account.permissions] })); }
+export function hasPermission(session: DemoSession, permission: PermissionId) { return session.isAdmin || session.permissions.includes(permission); }
+export async function requirePermission(permission: PermissionId) {
+  const session = await getDemoSession();
+  if (!session) throw new Error('Sign in is required.');
+  if (!hasPermission(session, permission)) throw new Error(`Permission required: ${permission}.`);
+  return session;
+}
 export function provisionDemoUser(input: { name: string; email: string; role: UserRole; permissions: PermissionId[] }): DemoSession {
   const account = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '') || `user.${Date.now()}`;
   const unique = demoAccounts[account] ? `${account}.${Date.now().toString().slice(-4)}` : account;

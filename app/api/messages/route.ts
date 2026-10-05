@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDemoSession } from '@/lib/auth';
+import { getDemoSession, hasPermission } from '@/lib/auth';
 import { getInternalMessages, getSnapshot, sendInternalMessage } from '@/lib/repository';
 
 export async function GET() {
@@ -11,6 +11,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
+  if (!hasPermission(session, 'send_messages')) return NextResponse.json({ error: 'Message permission is required.' }, { status: 403 });
   try {
     const input = await request.json();
     const isBroadcast = input.recipientId === 'all';

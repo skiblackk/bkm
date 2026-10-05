@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createTask, formatAssistantAnswer, getSnapshot, searchForAssistant, updateTask } from '@/lib/repository';
 import { z } from 'zod';
+import { requirePermission } from '@/lib/auth';
 
 const schema = z.object({ question: z.string().min(2).max(2000) });
 
@@ -11,6 +12,7 @@ function findRequestedTask(question: string) {
 
 export async function POST(request: Request) {
   try {
+    await requirePermission('use_assistant');
     const { question } = schema.parse(await request.json());
     const lower = question.toLowerCase();
     if (/(create|add|make|open)\s+(a\s+)?task/.test(lower)) {

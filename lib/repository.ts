@@ -5,6 +5,7 @@ import type { AttendanceRecord, AccountingSnapshot, DocumentExtraction } from '.
 import { getAccountingSnapshot } from './accounting';
 import { approveDocumentExtraction, getDocumentExtraction } from './document-intelligence';
 import type { AuditEvent, PermissionId, UserRole } from './access-control';
+import { getConfiguredDemoDate } from './demo-config';
 
 let snapshot: DemoSnapshot | undefined;
 let attendance: AttendanceRecord[] = JSON.parse(JSON.stringify(attendanceSeed)) as AttendanceRecord[];
@@ -25,7 +26,7 @@ function getStore(): DemoSnapshot {
 function isBeforeToday(dateLabel: string) {
   const date = new Date(dateLabel.replace(/(\d+)(st|nd|rd|th)/, '$1'));
   if (Number.isNaN(date.getTime())) return false;
-  return date.getTime() < new Date('2026-10-01T00:00:00Z').getTime();
+  return date.getTime() < new Date(`${getConfiguredDemoDate()}T00:00:00+03:00`).getTime();
 }
 
 function enrich(store: DemoSnapshot): DemoSnapshot {
@@ -62,7 +63,7 @@ export function getAttendance() {
 }
 
 export function updateAttendance(staffId: string, action: 'check-in' | 'check-out', note?: string) {
-  const today = '2026-10-01';
+  const today = getConfiguredDemoDate();
   let record = attendance.find((item) => item.staffId === staffId && item.date === today);
   if (!record) {
     record = { id: `att-${Date.now()}`, staffId, date: today, status: 'Not Checked In', checkIn: null, checkOut: null, note: null, durationMinutes: null };
@@ -96,7 +97,7 @@ export function removeUser(staffId: string) {
   const member = store.staff.find((item) => item.id === staffId);
   if (!member) throw new Error('User was not found.');
   store.staff = store.staff.filter((item) => item.id !== staffId);
-  store.tasks = store.tasks.map((task) => task.assignedTo === staffId ? { ...task, assignedTo: 'unassigned', updatedAt: '01 Oct 2026' } : task);
+  store.tasks = store.tasks.map((task) => task.assignedTo === staffId ? { ...task, assignedTo: 'unassigned', updatedAt: getConfiguredDemoDate() } : task);
   attendance = attendance.filter((record) => record.staffId !== staffId);
   store.activities.unshift({ id: `activity-${Date.now()}`, type: 'Status changed', description: `${member.name} was removed from the demonstration workspace`, actor: 'Benjamin Mutua', timestamp: 'Just now', recordType: 'Task', recordId: staffId });
   recordAudit({ actorId: 'benjamin', actorName: 'Benjamin Mutua', actorRole: 'System Administrator', action: 'remove_user', targetType: 'User', targetId: staffId, detail: `${member.name} was removed and their tasks were unassigned`, severity: 'security' });
@@ -129,7 +130,7 @@ export function updateTask(taskId: string, patch: { status?: TaskStatus; assigne
   if (!task) return null;
   if (patch.status) task.status = patch.status;
   if (patch.assignedTo) task.assignedTo = patch.assignedTo;
-  task.updatedAt = '01 Oct 2026';
+  task.updatedAt = getConfiguredDemoDate();
   store.activities.unshift({ id: `activity-${Date.now()}`, type: patch.status === 'Completed' ? 'Task completed' : 'Status changed', description: `${task.title} updated in the demonstration environment`, actor: 'Demo Manager', timestamp: 'Just now', recordType: 'Task', recordId: task.id });
   recordAudit({ actorId: 'system', actorName: 'BKM Operations Hub', actorRole: 'System', action: patch.status === 'Completed' ? 'complete_task' : 'update_task', targetType: 'Task', targetId: task.id, detail: `${task.title} changed${patch.assignedTo ? ` and assigned to ${patch.assignedTo}` : ''}`, severity: 'change' });
   return getSnapshot();
@@ -140,7 +141,7 @@ export function createTask(input: { title: string; description?: string; clientI
   const client = input.clientId ? store.clients.find((item) => item.id === input.clientId) : store.clients[0];
   const engagement = input.engagementId ? store.engagements.find((item) => item.id === input.engagementId) : store.engagements.find((item) => item.clientId === client?.id && item.status !== 'Completed');
   if (!client || !engagement) throw new Error('Choose a client and engagement before creating a task.');
-  const task = { id: `task-${Date.now()}`, title: input.title.trim(), description: input.description?.trim() || 'Created from an instruction to the BKM work assistant.', clientId: client.id, engagementId: engagement.id, assignedTo: input.assignedTo || 'unassigned', priority: input.priority || 'Medium', dueDate: input.dueDate || '15 Oct 2026', status: 'Not Started' as const, updatedAt: '01 Oct 2026' };
+  const task = { id: `task-${Date.now()}`, title: input.title.trim(), description: input.description?.trim() || 'Created from an instruction to the BKM work assistant.', clientId: client.id, engagementId: engagement.id, assignedTo: input.assignedTo || 'unassigned', priority: input.priority || 'Medium', dueDate: input.dueDate || '15 Oct 2026', status: 'Not Started' as const, updatedAt: getConfiguredDemoDate() };
   if (!task.title) throw new Error('A task title is required.');
   store.tasks.unshift(task);
   store.activities.unshift({ id: `activity-${Date.now()}-task`, type: 'Task assigned', description: `${task.title} was created by the BKM work assistant`, actor: 'BKM Work Assistant', timestamp: 'Just now', recordType: 'Task', recordId: task.id });
@@ -150,7 +151,7 @@ export function createTask(input: { title: string; description?: string; clientI
 
 export function createQuotation(input: { clientId: string; service: string; description: string; terms: string; items: QuotationItem[] }): DemoSnapshot {
   const store = getStore();
-  const quotation: Quotation = { id: `quote-${Date.now()}`, ...input, status: 'Ready for review', createdAt: '01 Oct 2026' };
+  const quotation: Quotation = { id: `quote-${Date.now()}`, ...input, status: 'Ready for review', createdAt: getConfiguredDemoDate() };
   store.quotations.unshift(quotation);
   store.activities.unshift({ id: `activity-${Date.now()}-quote`, type: 'Status changed', description: 'Demonstration quotation prepared for review', actor: 'Demo Manager', timestamp: 'Just now', recordType: 'Client', recordId: input.clientId });
   recordAudit({ actorId: 'system', actorName: 'BKM Operations Hub', actorRole: 'System', action: 'create_quotation', targetType: 'Quotation', targetId: quotation.id, detail: 'A quotation was prepared for review', severity: 'change' });
@@ -159,7 +160,7 @@ export function createQuotation(input: { clientId: string; service: string; desc
 
 export function createReport(input: { clientId: string; engagementId: string; reportType: string }): { snapshot: DemoSnapshot; report: ReportRecord } {
   const store = getStore();
-  const report: ReportRecord = { id: `report-${Date.now()}`, ...input, status: 'Draft / Demonstration', createdAt: '01 Oct 2026' };
+  const report: ReportRecord = { id: `report-${Date.now()}`, ...input, status: 'Draft / Demonstration', createdAt: getConfiguredDemoDate() };
   store.reports.unshift(report);
   store.activities.unshift({ id: `activity-${Date.now()}-report`, type: 'Status changed', description: 'Draft demonstration report generated', actor: 'Demo Manager', timestamp: 'Just now', recordType: 'Engagement', recordId: input.engagementId });
   recordAudit({ actorId: 'system', actorName: 'BKM Operations Hub', actorRole: 'System', action: 'create_report', targetType: 'Report', targetId: report.id, detail: 'A draft report was generated', severity: 'change' });
@@ -172,7 +173,7 @@ export function searchForAssistant(question: string) {
   const attendanceData = getAttendance();
   if (lower.includes('check in') || lower.includes('checked in') || lower.includes('late') || lower.includes('attendance')) {
     const targetStatus = lower.includes('late') ? 'Late' : 'Not Checked In';
-    const names = attendanceData.records.filter((record) => record.date === '2026-10-01' && record.status === targetStatus).map((record) => ({ ...record, name: store.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId }));
+    const names = attendanceData.records.filter((record) => record.date === getConfiguredDemoDate() && record.status === targetStatus).map((record) => ({ ...record, name: store.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId }));
     return { tool: lower.includes('late') ? 'get_late_staff' : 'get_attendance_status', records: names };
   }
   if (lower.includes('trial balance') || lower.includes('balance sheet') || lower.includes('income statement') || lower.includes('ledger') || lower.includes('financial position')) return { tool: 'get_trial_balance', records: [getAccounting()] };
@@ -202,7 +203,7 @@ export function formatAssistantAnswer(question: string, result: ReturnType<typeo
       ? `Balance sheet — deterministic accounting engine\n\n${lines}\nCurrent-period profit: ${accounting.incomeStatement.netProfit.toLocaleString('en-KE')} KES\n\nTotal assets: ${accounting.balanceSheet.assets.toLocaleString('en-KE')} KES\nLiabilities: ${accounting.balanceSheet.liabilities.toLocaleString('en-KE')} KES\nEquity including current-period profit: ${accounting.balanceSheet.equity.toLocaleString('en-KE')} KES\n\nCheck: assets ${accounting.balanceSheet.balanced ? 'equal' : 'do not equal'} liabilities plus equity.`
       : `The deterministic accounting engine reports revenue of ${accounting.incomeStatement.revenue.toLocaleString('en-KE')} KES, expenses of ${accounting.incomeStatement.expenses.toLocaleString('en-KE')} KES and net profit of ${accounting.incomeStatement.netProfit.toLocaleString('en-KE')} KES. The balance sheet is ${accounting.balanceSheet.balanced ? 'balanced' : 'out of balance'} with assets of ${accounting.balanceSheet.assets.toLocaleString('en-KE')} KES.`;
   }
-  if (result.tool === 'get_management_overview') return `The firm has ${store.clients.filter((client) => client.status === 'Active').length} active clients, ${store.engagements.length} active engagements, ${getMetrics(store).overdueTasks} overdue tasks, ${getAttendance().records.filter((record) => record.date === '2026-10-01' && record.status === 'Not Checked In').length} named staff members not checked in, and a deterministic accounting net profit of ${getAccounting().incomeStatement.netProfit.toLocaleString('en-KE')} KES in the fictional period.`;
+  if (result.tool === 'get_management_overview') return `The firm has ${store.clients.filter((client) => client.status === 'Active').length} active clients, ${store.engagements.length} active engagements, ${getMetrics(store).overdueTasks} overdue tasks, ${getAttendance().records.filter((record) => record.date === getConfiguredDemoDate() && record.status === 'Not Checked In').length} named staff members not checked in, and a deterministic accounting net profit of ${getAccounting().incomeStatement.netProfit.toLocaleString('en-KE')} KES in the fictional period.`;
   if (result.tool === 'get_overdue_tasks') {
     const tasks = result.records as typeof store.tasks;
     return tasks.length ? `I found ${tasks.length} overdue items requiring attention:\n\n${tasks.slice(0, 5).map((task, index) => `${index + 1}. ${task.title} — due ${task.dueDate}; ${store.clients.find((client) => client.id === task.clientId)?.name ?? 'Client'} (${task.priority} priority)`).join('\n')}` : 'No overdue tasks are currently recorded in the demonstration environment.';

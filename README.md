@@ -13,6 +13,8 @@ pnpm dev
 
 Open `/` for the workspace or `/admin` for the management command center.
 
+The demonstration uses an explicit historical operating date so the seeded records remain reproducible. Set `BKM_DEMO_DATE=YYYY-MM-DD` for server logic and `NEXT_PUBLIC_BKM_DEMO_DATE=YYYY-MM-DD` for the client build when changing the demo period; the default is `2026-10-01` in `Africa/Nairobi`.
+
 ## Delivered in this stage
 
 - Responsive enterprise workspace shell with dashboard, clients, engagements, tasks, staff, quotations, reports and assistant views.
@@ -23,6 +25,7 @@ Open `/` for the workspace or `/admin` for the management command center.
 - Document-intelligence review state with extracted transaction preview, unusual-item flag and explicit human approval gate before future accounting conversion.
 - Client evidence intake inside each client record: upload PDF, CSV, TXT or Excel files up to 50 MB, server-side workbook extraction across all worksheets, GPT-5 Mini instruction-aware analysis when configured, transaction-like row detection, warnings and a reviewable upload history. Large workbooks can be summarized, but a balance sheet still requires classified account balances or a trial balance.
 - Instruction-led BKM work assistant that retrieves live records, creates and updates demo tasks from explicit instructions, and prepares management/accounting summaries without pretending to post entries or send messages. Assistant answers are generated from server-side retrieved records, not canned UI responses.
+- Benjamin-only AI communication triage desk with priority, message summary, classification reasoning, editable suggested replies, audit-logged approval/rejection controls and no automatic external sending.
 - Supabase PostgreSQL migrations and RLS policies under `supabase/`, plus idempotent managed-development migrations/seed scripts under `db/`.
 
 ## Demo credentials
@@ -32,6 +35,7 @@ Choose a seeded account on the login screen. These are demonstration sessions on
 ## Security and production boundaries
 
 - Secret values are server-side only; no credentials are embedded in client code.
+- Workspace data, assistant actions, document access, exports and internal messages require a signed-in session plus the relevant server-side permission. Administrator actions remain restricted to Benjamin Mutua.
 - AI access is routed through controlled server tools; no arbitrary SQL is exposed.
 - Supabase migrations enable RLS on all business tables and limit AI conversation records to the owning user.
 - Documents are currently represented through a private-storage-ready repository boundary; real Supabase Storage buckets, signed URLs and file parsing still need production configuration.
@@ -44,6 +48,15 @@ Choose a seeded account on the login screen. These are demonstration sessions on
 3. Review the balanced trial balance and financial position generated from deterministic journal records.
 4. Review and approve the fictional bank-statement extraction. Approval is explicit; uncertain extraction is not silently posted to accounting.
 5. Open the assistant and ask “Who has not checked in today?”, “Who is late today?”, “Create a trial balance”, or “How is the firm doing?”.
+6. Open `/admin`, review the seeded AI inbox sample, edit its suggested reply, and approve or reject it. Approval records Benjamin’s decision but does not send externally; a real provider webhook can be posted to `/api/webhooks/communications?channel=gmail` to create a live triage item.
+
+## Demo honesty and reset boundary
+
+- This repository is still a controlled in-memory demonstration repository. Changes survive a page refresh while the server process remains alive, but a process restart resets the seeded state. The README and UI label fictional records, drafts, approvals and demo samples explicitly.
+- The Respond.io Gmail bridge was tested for an approved send in the connected workspace. WhatsApp and SMS remain provider-configuration stages until their channels are connected and tested.
+- The AI triage panel is a deterministic, record-safe demonstration classifier today. It explains why it escalated a message and requires Benjamin’s approval; a production deployment should persist inbound events and drafts in Supabase and replace the classifier with the approved server-side LLM workflow.
+- The accounting reports are calculated by the deterministic journal/ledger engine. Document approval is deliberately separate from posting: the current demonstration does not silently create journal entries from an extraction.
+- For a clean demo reset, restart the development/production process after recording any evidence you need. Supabase migration and seed scripts are available for the future persistent repository stage but are not the source of truth for the current in-memory preview.
 
 ## Next production stages
 
