@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { createTask, formatAssistantAnswer, getSnapshot, searchForAssistant, updateTask } from '@/lib/repository';
+import { createTask, getSnapshot, updateTask } from '@/lib/repository';
 import { z } from 'zod';
 import { requirePermission } from '@/lib/auth';
+import { askCeoCopilot } from '@/lib/ceo-copilot';
 
 const schema = z.object({ question: z.string().min(2).max(2000) });
 
@@ -26,8 +27,8 @@ export async function POST(request: Request) {
       const snapshot = updateTask(task.id, { status: 'Completed' });
       return NextResponse.json({ answer: `I marked “${task.title}” as Completed in the task register.`, tool: 'complete_task', recordCount: snapshot?.tasks.length ?? 0, source: 'assistant action' });
     }
-    const result = searchForAssistant(question);
-    return NextResponse.json({ answer: formatAssistantAnswer(question, result), tool: result.tool, recordCount: result.records.length, source: 'controlled live server tool' });
+    const result = await askCeoCopilot(question);
+    return NextResponse.json({ ...result, tool: 'live_grounded_copilot', recordCount: result.evidence.length, source: `live model ${result.model}` });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Assistant could not complete the request.' }, { status: 400 });
   }

@@ -10,8 +10,8 @@ async function request(path, options = {}) {
 }
 const login = await request('/api/auth/demo', { method: 'POST', body: JSON.stringify({ account: 'benjamin' }) }); assert(login.response.ok && login.body.session.isAdmin, 'Benjamin admin login failed');
 const protectedDataBeforeLogin = await (async () => { const saved = cookie; cookie = ''; const result = await request('/api/data'); cookie = saved; return result; })(); assert(protectedDataBeforeLogin.response.status === 401, 'Unauthenticated data access should be blocked');
-const assistantAnswer = await request('/api/assistant', { method: 'POST', body: JSON.stringify({ question: 'Who is late today?' }) }); assert(assistantAnswer.response.ok && assistantAnswer.body.answer.includes('Mary Wanjiku'), 'Assistant answer is not grounded in named attendance records');
-assert(assistantAnswer.body.recordCount > 0, 'Assistant should return supporting records');
+const assistantAnswer = await request('/api/assistant', { method: 'POST', body: JSON.stringify({ question: 'Who is late today?' }) }); assert(assistantAnswer.response.ok && assistantAnswer.body.live === true && assistantAnswer.body.model, 'Assistant should use the live model');
+assert(assistantAnswer.body.recordCount > 0 && JSON.stringify(assistantAnswer.body.evidence).toLowerCase().includes('mary'), 'Assistant answer is not grounded in named attendance records');
 assert(beforeAccountingIsBalanced(await request('/api/data')), 'Accounting balance sheet should balance');
 const before = await request('/api/admin'); assert(before.response.ok && Array.isArray(before.body.audit), 'Admin audit payload missing');
 const created = await request('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'create-user', name: 'E2E User', email: 'e2e@example.com', role: 'Viewer', permissions: ['view_dashboard', 'send_messages'] }) }); assert(created.response.ok && created.body.user.role === 'Viewer', 'User provisioning failed');
