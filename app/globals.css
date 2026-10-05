@@ -44,3 +44,19 @@ button:active { transform: translateY(1px); }
 .task-table .task-status { min-width: 142px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }
 @layer components { .panel { @apply rounded-[14px] border border-line bg-white shadow-panel; position: relative; overflow: hidden; } .panel::before { content: ''; position: absolute; inset: 0 0 auto; height: 1px; background: linear-gradient(90deg, transparent, rgba(244,180,27,.45), transparent); opacity: .55; pointer-events: none; } .eyebrow { @apply text-[10px] font-semibold uppercase tracking-[0.17em] text-slate-500; } .section-title { @apply text-[15px] font-semibold tracking-[-0.01em] text-ink; } .status-dot { @apply inline-block h-2 w-2 rounded-full; } .tabular { font-variant-numeric: tabular-nums; } }
+
+@media (max-width: 767px) {
+  .task-table { table-layout: fixed; }
+  .task-table .task-mobile-hide { display: none; }
+  .task-table th:nth-child(1) { width: 49%; }
+  .task-table th:nth-child(3) { width: 20%; }
+  .task-table th:nth-child(5) { width: 14%; }
+  .task-table th:nth-child(6) { width: 17%; }
+  .task-table .task-assignee { min-width: 0; }
+  .task-table .task-assignee > div { gap: .35rem; }
+  .task-table .task-assignee span { font-size: 10px; line-height: 1.2; }
+  .task-table .task-status select { width: 100%; max-width: 100%; padding-inline: .25rem; font-size: 10px; }
+  .task-table .task-title { max-width: none; font-size: 11px; line-height: 1.35; }
+  .task-table td, .task-table th { padding-inline: .5rem; }
+  .task-table td:first-child, .task-table th:first-child { padding-left: .75rem; }
+}

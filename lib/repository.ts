@@ -1,5 +1,5 @@
 import { cloneSeedSnapshot } from './demo-data';
-import type { DashboardMetrics, DemoSnapshot, InternalMessage, Quotation, QuotationItem, ReportRecord, TaskStatus } from './types';
+import type { DashboardMetrics, DemoSnapshot, InternalMessage, Quotation, QuotationItem, ReportRecord, TaskPriority, TaskStatus } from './types';
 import { attendanceSeed, attendanceSettings } from './attendance-data';
 import type { AttendanceRecord, AccountingSnapshot, DocumentExtraction } from './extended-types';
 import { getAccountingSnapshot } from './accounting';
@@ -9,8 +9,8 @@ import type { AuditEvent, PermissionId, UserRole } from './access-control';
 let snapshot: DemoSnapshot | undefined;
 let attendance: AttendanceRecord[] = JSON.parse(JSON.stringify(attendanceSeed)) as AttendanceRecord[];
 let internalMessages: InternalMessage[] = [
-  { id: 'msg-001', senderId: 'benjamin', senderName: 'Benjamin Kimani', recipientId: 'all', recipientName: 'All users', body: 'Please check in before starting client work today.', createdAt: '08:00', kind: 'broadcast' },
-  { id: 'msg-002', senderId: 'staff-david', senderName: 'David Kamau', recipientId: 'benjamin', recipientName: 'Benjamin Kimani', body: 'The ABC Manufacturing review pack is ready for your review.', createdAt: '08:15', kind: 'direct' },
+  { id: 'msg-001', senderId: 'benjamin', senderName: 'Benjamin Mutua', recipientId: 'all', recipientName: 'All users', body: 'Please check in before starting client work today.', createdAt: '08:00', kind: 'broadcast' },
+  { id: 'msg-002', senderId: 'staff-david', senderName: 'David Kamau', recipientId: 'benjamin', recipientName: 'Benjamin Mutua', body: 'The ABC Manufacturing review pack is ready for your review.', createdAt: '08:15', kind: 'direct' },
 ];
 let auditEvents: AuditEvent[] = [];
 
@@ -98,11 +98,11 @@ export function removeUser(staffId: string) {
   store.staff = store.staff.filter((item) => item.id !== staffId);
   store.tasks = store.tasks.map((task) => task.assignedTo === staffId ? { ...task, assignedTo: 'unassigned', updatedAt: '01 Oct 2026' } : task);
   attendance = attendance.filter((record) => record.staffId !== staffId);
-  store.activities.unshift({ id: `activity-${Date.now()}`, type: 'Status changed', description: `${member.name} was removed from the demonstration workspace`, actor: 'Benjamin Kimani', timestamp: 'Just now', recordType: 'Task', recordId: staffId });
-  recordAudit({ actorId: 'benjamin', actorName: 'Benjamin Kimani', actorRole: 'System Administrator', action: 'remove_user', targetType: 'User', targetId: staffId, detail: `${member.name} was removed and their tasks were unassigned`, severity: 'security' });
+  store.activities.unshift({ id: `activity-${Date.now()}`, type: 'Status changed', description: `${member.name} was removed from the demonstration workspace`, actor: 'Benjamin Mutua', timestamp: 'Just now', recordType: 'Task', recordId: staffId });
+  recordAudit({ actorId: 'benjamin', actorName: 'Benjamin Mutua', actorRole: 'System Administrator', action: 'remove_user', targetType: 'User', targetId: staffId, detail: `${member.name} was removed and their tasks were unassigned`, severity: 'security' });
   return getSnapshot();
 }
-export function assignTask(taskId: string, staffId: string) { recordAudit({ actorId: 'benjamin', actorName: 'Benjamin Kimani', actorRole: 'System Administrator', action: 'assign_task', targetType: 'Task', targetId: taskId, detail: `Task assigned to ${staffId}`, severity: 'change' }); return updateTask(taskId, { assignedTo: staffId }); }
+export function assignTask(taskId: string, staffId: string) { recordAudit({ actorId: 'benjamin', actorName: 'Benjamin Mutua', actorRole: 'System Administrator', action: 'assign_task', targetType: 'Task', targetId: taskId, detail: `Task assigned to ${staffId}`, severity: 'change' }); return updateTask(taskId, { assignedTo: staffId }); }
 export function getAccounting(): AccountingSnapshot { return getAccountingSnapshot(); }
 export function getDocumentIntelligence(): DocumentExtraction { return getDocumentExtraction(); }
 export function approveDocument() { return approveDocumentExtraction(); }
@@ -132,6 +132,19 @@ export function updateTask(taskId: string, patch: { status?: TaskStatus; assigne
   task.updatedAt = '01 Oct 2026';
   store.activities.unshift({ id: `activity-${Date.now()}`, type: patch.status === 'Completed' ? 'Task completed' : 'Status changed', description: `${task.title} updated in the demonstration environment`, actor: 'Demo Manager', timestamp: 'Just now', recordType: 'Task', recordId: task.id });
   recordAudit({ actorId: 'system', actorName: 'BKM Operations Hub', actorRole: 'System', action: patch.status === 'Completed' ? 'complete_task' : 'update_task', targetType: 'Task', targetId: task.id, detail: `${task.title} changed${patch.assignedTo ? ` and assigned to ${patch.assignedTo}` : ''}`, severity: 'change' });
+  return getSnapshot();
+}
+
+export function createTask(input: { title: string; description?: string; clientId?: string; engagementId?: string; assignedTo?: string; priority?: TaskPriority; dueDate?: string }) {
+  const store = getStore();
+  const client = input.clientId ? store.clients.find((item) => item.id === input.clientId) : store.clients[0];
+  const engagement = input.engagementId ? store.engagements.find((item) => item.id === input.engagementId) : store.engagements.find((item) => item.clientId === client?.id && item.status !== 'Completed');
+  if (!client || !engagement) throw new Error('Choose a client and engagement before creating a task.');
+  const task = { id: `task-${Date.now()}`, title: input.title.trim(), description: input.description?.trim() || 'Created from an instruction to the BKM work assistant.', clientId: client.id, engagementId: engagement.id, assignedTo: input.assignedTo || 'unassigned', priority: input.priority || 'Medium', dueDate: input.dueDate || '15 Oct 2026', status: 'Not Started' as const, updatedAt: '01 Oct 2026' };
+  if (!task.title) throw new Error('A task title is required.');
+  store.tasks.unshift(task);
+  store.activities.unshift({ id: `activity-${Date.now()}-task`, type: 'Task assigned', description: `${task.title} was created by the BKM work assistant`, actor: 'BKM Work Assistant', timestamp: 'Just now', recordType: 'Task', recordId: task.id });
+  recordAudit({ actorId: 'assistant', actorName: 'BKM Work Assistant', actorRole: 'Assistant', action: 'create_task', targetType: 'Task', targetId: task.id, detail: `Created ${task.title} for ${client.name}`, severity: 'change' });
   return getSnapshot();
 }
 

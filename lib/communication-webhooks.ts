@@ -24,7 +24,7 @@ export function acceptWebhook(channel: CommunicationChannel, payload: Record<str
   const sender = String(data.from ?? data.sender ?? data.email ?? data.phone ?? 'External contact');
   const body = String(data.body ?? data.text ?? data.message ?? data.snippet ?? data.subject ?? 'New communication received.');
   const subject = data.subject ? String(data.subject) : undefined;
-  const alert: CommunicationAlert = { id: `alert-${Date.now()}`, senderId: `external-${channel}`, senderName: sender, recipientId: 'benjamin', recipientName: 'Benjamin Kimani', body, createdAt: 'Just now', kind: 'alert', channel, externalId: data.id ? String(data.id) : undefined, subject, phone: data.phone ? String(data.phone) : undefined };
+  const alert: CommunicationAlert = { id: `alert-${Date.now()}`, senderId: `external-${channel}`, senderName: sender, recipientId: 'benjamin', recipientName: 'Benjamin Mutua', body, createdAt: 'Just now', kind: 'alert', channel, externalId: data.id ? String(data.id) : undefined, subject, phone: data.phone ? String(data.phone) : undefined };
   alerts.unshift(alert);
   return alert;
 }
