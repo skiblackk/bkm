@@ -60,3 +60,9 @@ button:active { transform: translateY(1px); }
   .task-table td, .task-table th { padding-inline: .5rem; }
   .task-table td:first-child, .task-table th:first-child { padding-left: .75rem; }
 }
+
+@media (max-width: 767px) {
+  .task-table { min-width: 980px; }
+  .task-table .task-title { max-width: 100%; overflow-wrap: anywhere; }
+  .task-table select { min-height: 38px; }
+}

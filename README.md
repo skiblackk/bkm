@@ -51,7 +51,7 @@ Choose a seeded account on the login screen. These are demonstration sessions on
 2. Replace in-memory repository writes with Supabase server repositories and transactions.
 3. Connect Supabase Storage private buckets, signed URLs and real PDF/DOCX/XLSX extraction.
 4. Add accounting posting approvals, AR/AP, reconciliation and immutable financial audit history.
-5. Add DOCX generation, client portal, email/WhatsApp providers and notification preferences.
+5. Add DOCX generation, client portal, WhatsApp/SMS providers and notification preferences.
 6. Add rate limiting, monitoring, deployment configuration, security review and full automated test coverage.
 
 ## Communication webhooks
@@ -61,6 +61,15 @@ The protected admin command center exposes a normalized inbound alert endpoint f
 - WhatsApp / Respond.io: `POST /api/webhooks/communications?channel=whatsapp`
 
 Set `BKM_GMAIL_WEBHOOK_SECRET`, `BKM_SMS_WEBHOOK_SECRET`, and `BKM_WHATSAPP_WEBHOOK_SECRET` in production. Send the secret in `x-bkm-webhook-secret`. Incoming payloads may use `from`, `email`, `phone`, `subject`, `body`, `text`, or `message`; they are normalized into Benjamin’s review inbox. The demo intentionally does not auto-send replies.
+
+## Respond.io Gmail server bridge
+The BKM admin route is ready for Benjamin Mutua’s server-side Respond.io integration:
+- Status: `GET /api/integrations/respondio/gmail`
+- Read a contact’s Gmail thread: `GET /api/integrations/respondio/gmail?identifier=email:client@example.com`
+- Send an approved email reply: `POST /api/integrations/respondio/gmail` with `identifier`, `text`, optional `subject`/`replyToMessageId`, and `approved: true`
+- Receive Respond.io events: `POST /api/webhooks/respondio`
+
+Set `RESPOND_IO_API_TOKEN` only in the deployment secret store. The route uses Respond.io API v2, pins the verified `SMTP - Gmail` channel through `RESPOND_IO_GMAIL_CHANNEL_ID`, requires Benjamin’s admin session for access, and refuses outbound sends unless `approved: true`. Configure Respond.io Webhooks to call `/api/webhooks/respondio` for New Incoming Message and New Outgoing Message events.
 
 ## Container deployment
 The Webdev project is configured for server deployment through the root `Dockerfile`. The container listens on `PORT` (default `3000`) and starts the Next.js production server. `/api/health` is intentionally unauthenticated and returns a small JSON readiness response for the deployment health check.
