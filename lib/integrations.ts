@@ -1,3 +1,5 @@
+import { getRespondIoStatus } from '@/lib/respond-io';
+
 /**
  * Demo integration state.
  *
@@ -6,11 +8,13 @@
  * OAuth-backed server-side integration record.
  */
 export function getIntegrationStatus() {
+  const bridge = getRespondIoStatus();
   return {
     gmail: {
       connected: true,
       label: 'Connected via Respond.io · SMTP - Gmail',
-      detail: 'Respond.io channel 563627 is connected as SMTP - Gmail. Use this channel for email intake and approved replies.',
+      detail: `Respond.io channel 563627 is connected as SMTP - Gmail. ${bridge.bridgeMessage}`,
+      bridgeConfigured: bridge.bridgeConfigured,
     },
     respondIo: {
       connected: true,
