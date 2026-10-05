@@ -124,6 +124,17 @@ export function getClient(clientId: string) {
   return store.clients.find((client) => client.id === clientId);
 }
 
+export function createClient(input: { name: string; industry: string; location: string; contactName: string; contactEmail: string; contactPhone?: string; services?: string[]; description?: string }) {
+  const store = getStore();
+  const name = input.name.trim();
+  if (!name || !input.industry.trim() || !input.location.trim() || !input.contactName.trim() || !input.contactEmail.trim()) throw new Error('Name, industry, location, contact name and contact email are required.');
+  const client = { id: `client-${Date.now()}`, name, industry: input.industry.trim(), status: 'Active' as const, location: input.location.trim(), contactName: input.contactName.trim(), contactEmail: input.contactEmail.trim(), contactPhone: input.contactPhone?.trim() || '', services: input.services?.length ? input.services : ['Audit & Assurance'], primaryManagerId: 'staff-david', engagementIds: [], documentCount: 0, outstandingRequests: 0, lastActivity: 'Just now', description: input.description?.trim() || 'New client record created in BKM Operations Hub.' };
+  store.clients.unshift(client);
+  store.activities.unshift({ id: `activity-${Date.now()}-client`, type: 'Client created', description: `${client.name} was added to the client portfolio`, actor: 'Benjamin Mutua', timestamp: 'Just now', recordType: 'Client', recordId: client.id });
+  recordAudit({ actorId: 'benjamin', actorName: 'Benjamin Mutua', actorRole: 'System Administrator', action: 'create_client', targetType: 'Client', targetId: client.id, detail: `Created client ${client.name}`, severity: 'change' });
+  return getSnapshot();
+}
+
 export function updateTask(taskId: string, patch: { status?: TaskStatus; assignedTo?: string }) {
   const store = getStore();
   const task = store.tasks.find((item) => item.id === taskId);
