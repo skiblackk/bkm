@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const isBroadcast = input.recipientId === 'all';
     if (isBroadcast && !session.isAdmin) return NextResponse.json({ error: 'Only the administrator can broadcast to all users.' }, { status: 403 });
     const staff = getSnapshot().staff.find((member) => member.id === input.recipientId);
-    const recipientName = isBroadcast ? 'All users' : input.recipientId === 'benjamin' ? 'Benjamin Kimani' : staff?.name;
+    const recipientName = isBroadcast ? 'All users' : input.recipientId === 'benjamin' ? 'Benjamin Mutua' : staff?.name;
     if (!recipientName) return NextResponse.json({ error: 'Choose a valid user.' }, { status: 400 });
     const message = sendInternalMessage({ senderId: session.staffId ?? session.account, senderName: session.name, recipientId: input.recipientId, recipientName, body: input.body, kind: isBroadcast ? 'broadcast' : 'direct' });
     return NextResponse.json({ message });
