@@ -45,7 +45,7 @@ function WebhookAlertPanel({ payload }: { payload: AdminPayload }) {
 
 
 const permissionOptions = [
-  ['view_dashboard', 'View dashboard'], ['manage_clients', 'Manage clients'], ['manage_tasks', 'Manage tasks'], ['view_finance', 'View finance'], ['use_assistant', 'Use AI assistant'], ['send_messages', 'Send messages'], ['manage_documents', 'Manage documents'],
+  ['view_dashboard', 'View dashboard'], ['manage_clients', 'Manage clients'], ['manage_tasks', 'Manage tasks'], ['view_finance', 'View finance'], ['use_assistant', 'Use work assistant'], ['send_messages', 'Send messages'], ['manage_documents', 'Manage documents'],
 ] as const;
 function UserManagementPanel({ payload, onAction }: { payload: AdminPayload; onAction: (body: Record<string, string>) => Promise<void> }) {
   const [name, setName] = useState(''); const [email, setEmail] = useState(''); const [role, setRole] = useState('Audit Associate'); const [permissions, setPermissions] = useState<string[]>(['view_dashboard', 'manage_tasks', 'use_assistant', 'send_messages', 'manage_documents']);
