@@ -128,6 +128,10 @@ export function createClient(input: { name: string; industry: string; location: 
   const store = getStore();
   const name = input.name.trim();
   if (!name || !input.industry.trim() || !input.location.trim() || !input.contactName.trim() || !input.contactEmail.trim()) throw new Error('Name, industry, location, contact name and contact email are required.');
+  const normalizedName = name.toLowerCase().replace(/\s+/g, ' ');
+  const normalizedEmail = input.contactEmail.trim().toLowerCase();
+  if (store.clients.some((client) => client.name.toLowerCase().replace(/\s+/g, ' ') === normalizedName)) throw new Error('A client with this name already exists. Open the existing record instead of creating a duplicate.');
+  if (store.clients.some((client) => client.contactEmail.trim().toLowerCase() === normalizedEmail)) throw new Error('A client contact with this email already exists. Check the existing client record before continuing.');
   const client = { id: `client-${Date.now()}`, name, industry: input.industry.trim(), status: 'Active' as const, location: input.location.trim(), contactName: input.contactName.trim(), contactEmail: input.contactEmail.trim(), contactPhone: input.contactPhone?.trim() || '', services: input.services?.length ? input.services : ['Audit & Assurance'], primaryManagerId: 'staff-david', engagementIds: [], documentCount: 0, outstandingRequests: 0, lastActivity: 'Just now', description: input.description?.trim() || 'New client record created in BKM Operations Hub.' };
   store.clients.unshift(client);
   store.activities.unshift({ id: `activity-${Date.now()}-client`, type: 'Client created', description: `${client.name} was added to the client portfolio`, actor: 'Benjamin Mutua', timestamp: 'Just now', recordType: 'Client', recordId: client.id });
