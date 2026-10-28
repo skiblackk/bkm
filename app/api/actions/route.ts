@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient, createQuotation, createReport, updateTask } from '@/lib/repository';
+import { createClient, createQuotation, createReport, createTask, updateTask } from '@/lib/repository';
 import { z } from 'zod';
 import { requirePermission } from '@/lib/auth';
 
 const actionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('updateTask'), taskId: z.string(), status: z.enum(['Not Started', 'In Progress', 'Blocked', 'Submitted', 'Under Review', 'Completed']).optional(), assignedTo: z.string().optional() }),
+  z.object({ action: z.literal('createTask'), title: z.string().trim().min(2), description: z.string().optional(), clientId: z.string().optional(), engagementId: z.string().optional(), assignedTo: z.string().optional(), priority: z.enum(['Low', 'Medium', 'High', 'Critical']).optional(), dueDate: z.string().optional() }),
   z.object({ action: z.literal('createClient'), name: z.string().trim().min(2), industry: z.string().trim().min(2), location: z.string().trim().min(2), contactName: z.string().trim().min(2), contactEmail: z.string().email(), contactPhone: z.string().optional(), description: z.string().optional() }),
   z.object({ action: z.literal('createQuotation'), clientId: z.string(), service: z.string(), description: z.string(), terms: z.string(), items: z.array(z.object({ id: z.string(), description: z.string(), quantity: z.number(), unitPrice: z.number() })) }),
   z.object({ action: z.literal('createReport'), clientId: z.string(), engagementId: z.string(), reportType: z.string() }),
@@ -14,6 +15,7 @@ export async function POST(request: Request) {
   try {
     const input = actionSchema.parse(await request.json());
     await requirePermission(input.action === 'createQuotation' || input.action === 'createClient' ? 'manage_clients' : input.action === 'createReport' ? 'view_finance' : 'manage_tasks');
+    if (input.action === 'createTask') return NextResponse.json({ snapshot: createTask(input), message: 'Task created in the demonstration environment.' });
     if (input.action === 'updateTask') {
       const snapshot = updateTask(input.taskId, { status: input.status, assignedTo: input.assignedTo });
       if (!snapshot) return NextResponse.json({ error: 'Task not found' }, { status: 404 });

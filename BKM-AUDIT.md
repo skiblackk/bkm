@@ -61,3 +61,25 @@ Executed checks:
 - Preview health and route manifest: PASS.
 
 Current status changes: notification centre is PASS for the demo repository; private messaging is PASS for the demo repository; persistent production storage remains PARTIAL until the database adapter is wired and migrations are applied.
+
+## Critical functionality audit — broad workflow pass
+
+A visible-control review found and repaired several misleading controls. Task creation now opens a real form and calls the secured `createTask` action. The client Filter control was removed because the adjacent search and status selector already perform the supported filtering behavior. The task overflow icon was replaced with explanatory non-interactive text because no overflow action existed. The profile/settings display was changed from an inactive button to a non-clickable identity display.
+
+The actions API now validates and exposes task creation through `createTask`, with permission enforcement and repository persistence for the current demo process.
+
+Executed `node scripts/core-acceptance.mjs` successfully:
+
+- client creation and duplicate rejection
+- task creation and status update
+- quotation creation
+- report generation
+- authenticated financial PDF export
+- authenticated financial Excel export
+- CSV document upload and scan result extraction
+- normal-user admin API denial
+- Respond.io integration status route
+
+All checks passed. The export route correctly requires an authenticated account with `view_finance`; the document scan route correctly returns HTTP 201 and exposes `summary` and `keyFields` directly on the document result.
+
+Remaining audit scope: deeper lifecycle controls and external communication send/receive behavior still require dedicated end-to-end checks; the demo repository remains in-memory until its database adapter is activated.
