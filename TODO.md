@@ -4,6 +4,8 @@
 - [ ] Client management supports server-authorized create, view, edit, archive, duplicate prevention, search, status/industry filters, and truthful empty/error states without exposing unrelated client records.
 - [ ] Engagement and task management shows linked client context, assigned staff, status/priority/date filters, mobile-safe layouts, comments, and permission-protected updates.
 - [ ] Staff administration remains restricted to Benjamin Mutua, supports user provisioning, explicit permission assignment, deactivation, and audit logging.
+- [x] The notification bell opens a recipient-scoped notification centre with real unread counts, read/unread filters, mark-all-read, related-record navigation, and supported event generation.
+- [x] Authorized staff can create and reuse one-to-one private conversations, send and receive messages, see unread/read states, receive notifications, and cannot access another participant's conversation.
 - [ ] Document intake accepts PDF, CSV, TXT, XLSX, and XLS within the stated size limit; stores the document record; preserves the user's instruction, audience, purpose, and detail request; reports truthful processing status; and exposes source fields/rows for review.
 - [ ] Document intelligence supports follow-up questions grounded in the uploaded document and exports verified PDF/XLSX reports whose totals and labels match the reviewed result.
 - [ ] CEO Copilot answers from current BKM records, performs reliable application calculations, cites evidence, clearly identifies missing data, and executes only authorized, confirmation-safe actions.

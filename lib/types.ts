@@ -145,3 +145,38 @@ export interface InternalMessage {
   createdAt: string;
   kind: 'direct' | 'broadcast' | 'alert';
 }
+
+export interface PrivateConversation {
+  id: string;
+  participantIds: string[];
+  participantNames: Record<string, string>;
+  createdAt: string;
+}
+
+export interface PrivateMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  recipientId: string;
+  recipientName: string;
+  body: string;
+  createdAt: string;
+  readAt: string | null;
+  clientMessageId?: string;
+}
+
+export interface NotificationRecord {
+  id: string;
+  recipientId: string;
+  category: string;
+  priority: 'Low' | 'Normal' | 'High' | 'Urgent';
+  title: string;
+  body: string;
+  createdAt: string;
+  isRead: boolean;
+  linkPath?: string;
+  relatedType?: string;
+  relatedId?: string;
+  dedupeKey?: string;
+}

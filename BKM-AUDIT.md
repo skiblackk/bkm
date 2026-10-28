@@ -44,3 +44,20 @@
 ## Repair batch completed in this session
 
 The client uploader now exposes PDF, CSV, TXT, XLSX, and XLS; the documents API separates authorization, validation, and internal scan errors; logout mirrors the secure cross-site Preview cookie policy; and duplicate client names/contact emails are rejected before insertion. `pnpm exec tsc --noEmit`, `pnpm build`, clean-state `pnpm e2e`, health/route-manifest checks, and the focused duplicate-client API check all passed. The persistent repository, full CRUD, closed-period accounting, and live external delivery verification remain open items.
+
+## Critical functionality audit — notification and private messaging repair
+
+The decorative notification bell was replaced with a real notification centre in `components/notification-center.tsx`, backed by `/api/notifications`. It displays recipient-scoped notifications, unread counts, category, priority, timestamps, read/unread filtering, mark-all-read, and related-record navigation. The current demo repository generates notifications for private messages and documents the in-memory limitation.
+
+The former all-messages view was replaced with `components/private-messages.tsx`. Private conversation records reuse one stable conversation per participant pair, save before the UI reports success, preserve chronological message history, support read indicators, provide polling refresh, prevent duplicate submissions with a client message ID, and reject unrelated conversation access server-side. The administrator broadcast path remains separate and protected.
+
+New migrations were added at `db/migrations/004_private_messaging_notifications.sql` and `supabase/migrations/004_private_messaging_notifications.sql` for conversations, participants, private messages, recipient-scoped notifications, read state, deduplication, and row-level access policies. The active demo still uses in-memory state until a configured database adapter is enabled.
+
+Executed checks:
+
+- `node scripts/messaging-notifications.mjs`: PASS — private send, duplicate prevention, recipient unread count, notification creation, read-state update, and unrelated-user isolation.
+- `pnpm e2e`: PASS on rerun — protected APIs, grounded assistant, accounting balance, provisioning, task assignment, duplicate attendance protection, direct chat, and broadcast protection.
+- `pnpm exec tsc --noEmit && pnpm build`: PASS — 26 routes compiled, including `/api/messages` and `/api/notifications`.
+- Preview health and route manifest: PASS.
+
+Current status changes: notification centre is PASS for the demo repository; private messaging is PASS for the demo repository; persistent production storage remains PARTIAL until the database adapter is wired and migrations are applied.
