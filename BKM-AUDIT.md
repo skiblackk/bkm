@@ -1,0 +1,85 @@
+# BKM Operations Hub — initial audit
+
+| Item | Exists? | Works end to end? | Notes |
+|---|---:|---:|---|
+| Protected app shell and route manifest | Yes | Yes | Preview shell and referenced chunks returned HTTP 200; existing route manifest is served separately from the app shell. |
+| Production build and TypeScript diagnostics | Yes | Yes | Production build already passed after restore; diagnostics were re-registered. |
+| Demo authentication/logout | Yes | Partial | Demo cookie is HttpOnly and cross-site Preview-aware on sign-in; logout currently hard-codes Lax/non-secure attributes and should mirror the public Preview cookie policy. |
+| Benjamin Mutua sole administrator | Yes | Yes in demo | Admin navigation and CEO Copilot are restricted by server-side session checks; persistence-backed identity is not active. |
+| User provisioning and permissions | Yes | Partial | Admin UI and permission catalog exist; records are still in-memory and need persistent authorization enforcement. |
+| Clients | Yes | Partial | Seeded records and create flow exist. Edit/archive, duplicate prevention, server-backed persistence, and full search/filter/pagination are incomplete or not verified. |
+| Engagements | Yes | Partial | Seeded linked records and detail views exist; full CRUD, filters, pagination, and persistent writes are incomplete. |
+| Tasks/check-ins/chat | Yes | Yes for demo flows | Existing E2E passed task assignment, duplicate attendance protection, direct chat, and broadcast protection. Persistence is not verified. |
+| Client-facing document upload | Yes | Partial | Portal and internal upload exist. Internal upload accepts Excel; the client upload component's file picker currently advertises only PDF/CSV/TXT despite scanner support for XLSX/XLS. Portal selection is demo-only and not tenant-authenticated. |
+| Document extraction and scan review | Yes | Partial | PDF/CSV/TXT/XLSX code paths exist, source rows/key fields and status UI exist, but durable document/extraction persistence and long-job processing are not wired. |
+| User-directed document analysis | Partial | Partial | Instruction is sent by the assistant upload component, but the result path is not yet verified to preserve audience/purpose/detail in persisted analysis or follow-up context. |
+| Document PDF/XLSX export | Yes | Yes for reviewed scan input | Export routes generate files after permission checks; live browser download should be included in final regression evidence. |
+| CEO Copilot | Yes | Yes for live configured model | Server-side built-in OpenAI-compatible call, grounded context, structured evidence, and live model identity are present. Tool/action coverage is currently limited to task create/complete and needs confirmation-safe expansion. |
+| Deterministic accounting | Yes | Yes for current demo reports | Accounting calculations are application code and existing E2E verifies balance; period close, draft/reversal rules, aging, drill-down source views, and persistence remain incomplete. |
+| Accounting automated test suite | Partial | Partial | Existing E2E checks balance; the ten required accounting cases are not all represented as isolated automated tests. |
+| Quotations | Yes | Partial | Demo quotation builder and calculation exist; statuses, revision history, export, invoice/payment workflow, and authorization lifecycle are incomplete. |
+| Gmail via Respond.io | Yes | Partial | Server client, token configuration, read/send routes, and status UI exist. Current status is configuration-based; a successful live send/read test is not proven in this restored session. |
+| WhatsApp and SMS | Yes as status/webhook surfaces | No | Webhook endpoints/status surfaces exist, but no configured provider/channel is present and no live delivery is verified. |
+| Notifications | Yes | Partial | Schema and demo surfaces exist; event generation, persistence, preferences, and duplicate prevention need completion. |
+| Audit trail | Yes | Partial | Audit schema and demo logging exist; full persistent coverage and admin filtering/export are not verified. |
+| Demo/test/real data separation | Partial | Partial | Demo labels and fictional seed data are explicit; main runtime remains in-memory, so production separation is not yet enforceable. |
+| Database persistence | Prepared | No | MySQL and Supabase migrations/seed scripts exist, but the active repository is still the in-memory adapter. |
+| Mobile layout | Yes | Partial | Responsive shell and mobile navigation exist; task/document/table edge cases need targeted screen-size validation. |
+| Deployment | Yes | Not re-verified here | A published domain is recorded by the project, but this session only verified the local restored preview; no new publish claim is made. |
+
+## Executed checks in this audit
+
+- `pnpm e2e`: PASS — protected APIs, grounded assistant, accounting balance, provisioning, task assignment, duplicate attendance protection, direct chat, and broadcast protection.
+- Preview shell/chunk check: PASS — referenced Next.js JavaScript assets returned HTTP 200.
+- Production build: PASS — inherited evidence from the restored session; re-run before final delivery after modifications.
+
+## Highest-priority repairs
+
+1. Correct upload format affordances and validation/error status semantics.
+2. Finish client CRUD and duplicate safeguards with server-side authorization.
+3. Add accounting rule tests and closed-period/draft/reversal safeguards.
+4. Introduce an explicit persistent repository adapter without deleting demo data.
+5. Replace integration “connected” claims with configured/reachable/verified states.
+
+## Repair batch completed in this session
+
+The client uploader now exposes PDF, CSV, TXT, XLSX, and XLS; the documents API separates authorization, validation, and internal scan errors; logout mirrors the secure cross-site Preview cookie policy; and duplicate client names/contact emails are rejected before insertion. `pnpm exec tsc --noEmit`, `pnpm build`, clean-state `pnpm e2e`, health/route-manifest checks, and the focused duplicate-client API check all passed. The persistent repository, full CRUD, closed-period accounting, and live external delivery verification remain open items.
+
+## Critical functionality audit — notification and private messaging repair
+
+The decorative notification bell was replaced with a real notification centre in `components/notification-center.tsx`, backed by `/api/notifications`. It displays recipient-scoped notifications, unread counts, category, priority, timestamps, read/unread filtering, mark-all-read, and related-record navigation. The current demo repository generates notifications for private messages and documents the in-memory limitation.
+
+The former all-messages view was replaced with `components/private-messages.tsx`. Private conversation records reuse one stable conversation per participant pair, save before the UI reports success, preserve chronological message history, support read indicators, provide polling refresh, prevent duplicate submissions with a client message ID, and reject unrelated conversation access server-side. The administrator broadcast path remains separate and protected.
+
+New migrations were added at `db/migrations/004_private_messaging_notifications.sql` and `supabase/migrations/004_private_messaging_notifications.sql` for conversations, participants, private messages, recipient-scoped notifications, read state, deduplication, and row-level access policies. The active demo still uses in-memory state until a configured database adapter is enabled.
+
+Executed checks:
+
+- `node scripts/messaging-notifications.mjs`: PASS — private send, duplicate prevention, recipient unread count, notification creation, read-state update, and unrelated-user isolation.
+- `pnpm e2e`: PASS on rerun — protected APIs, grounded assistant, accounting balance, provisioning, task assignment, duplicate attendance protection, direct chat, and broadcast protection.
+- `pnpm exec tsc --noEmit && pnpm build`: PASS — 26 routes compiled, including `/api/messages` and `/api/notifications`.
+- Preview health and route manifest: PASS.
+
+Current status changes: notification centre is PASS for the demo repository; private messaging is PASS for the demo repository; persistent production storage remains PARTIAL until the database adapter is wired and migrations are applied.
+
+## Critical functionality audit — broad workflow pass
+
+A visible-control review found and repaired several misleading controls. Task creation now opens a real form and calls the secured `createTask` action. The client Filter control was removed because the adjacent search and status selector already perform the supported filtering behavior. The task overflow icon was replaced with explanatory non-interactive text because no overflow action existed. The profile/settings display was changed from an inactive button to a non-clickable identity display.
+
+The actions API now validates and exposes task creation through `createTask`, with permission enforcement and repository persistence for the current demo process.
+
+Executed `node scripts/core-acceptance.mjs` successfully:
+
+- client creation and duplicate rejection
+- task creation and status update
+- quotation creation
+- report generation
+- authenticated financial PDF export
+- authenticated financial Excel export
+- CSV document upload and scan result extraction
+- normal-user admin API denial
+- Respond.io integration status route
+
+All checks passed. The export route correctly requires an authenticated account with `view_finance`; the document scan route correctly returns HTTP 201 and exposes `summary` and `keyFields` directly on the document result.
+
+Remaining audit scope: deeper lifecycle controls and external communication send/receive behavior still require dedicated end-to-end checks; the demo repository remains in-memory until its database adapter is activated.
