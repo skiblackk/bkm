@@ -7,12 +7,16 @@ import { approveDocumentExtraction, getDocumentExtraction } from './document-int
 import type { AuditEvent, PermissionId, UserRole } from './access-control';
 import { getConfiguredDemoDate } from './demo-config';
 
+declare global {
+  var __bkmInternalMessages: InternalMessage[] | undefined;
+}
+
 let snapshot: DemoSnapshot | undefined;
 let attendance: AttendanceRecord[] = JSON.parse(JSON.stringify(attendanceSeed)) as AttendanceRecord[];
-let internalMessages: InternalMessage[] = [
+const internalMessages = globalThis.__bkmInternalMessages ?? (globalThis.__bkmInternalMessages = [
   { id: 'msg-001', senderId: 'benjamin', senderName: 'Benjamin Mutua', recipientId: 'all', recipientName: 'All users', body: 'Please check in before starting client work today.', createdAt: '08:00', kind: 'broadcast' },
   { id: 'msg-002', senderId: 'staff-david', senderName: 'David Kamau', recipientId: 'benjamin', recipientName: 'Benjamin Mutua', body: 'The ABC Manufacturing review pack is ready for your review.', createdAt: '08:15', kind: 'direct' },
-];
+]);
 let auditEvents: AuditEvent[] = [];
 
 export function recordAudit(input: Omit<AuditEvent, 'id' | 'timestamp'>) { const event: AuditEvent = { ...input, id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, timestamp: new Date().toISOString() }; auditEvents.unshift(event); return event; }

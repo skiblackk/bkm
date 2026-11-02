@@ -18,7 +18,8 @@ export async function GET(request: Request) {
   const conversationId = new URL(request.url).searchParams.get('conversationId');
   try {
     if (conversationId) return NextResponse.json({ ...getPrivateConversation(conversationId, id), staff: peopleForSession(session) });
-    return NextResponse.json({ conversations: listPrivateConversations(id), staff: peopleForSession(session), messages: getInternalMessages().filter((message) => message.senderId === id || message.recipientId === id || (message.recipientId === 'all' && !session.isAdmin)) });
+    const broadcasts = getInternalMessages().filter((message) => message.recipientId === 'all' && message.senderId !== id).slice(0, 10);
+    return NextResponse.json({ conversations: listPrivateConversations(id), staff: peopleForSession(session), broadcasts, messages: getInternalMessages().filter((message) => message.senderId === id || message.recipientId === id || (message.recipientId === 'all' && !session.isAdmin)) });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Conversation access denied.' }, { status: 403 }); }
 }
 
