@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDemoSession, listDemoAccounts, provisionDemoUser } from '@/lib/auth';
+import { getDemoSession, listDemoAccounts, provisionDemoUser, updateDemoUserPermissions } from '@/lib/auth';
 import { addStaffMember, approveDocument, assignTask, getAccounting, getAttendance, getDocumentIntelligence, getInternalMessages, getSnapshot, removeUser, sendInternalMessage, updateAttendance } from '@/lib/repository';
 import { getAuditEvents, recordAudit } from '@/lib/repository';
 import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-webhooks';
@@ -43,9 +43,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ user, snapshot, audit: getAuditEvents() });
     }
     if (input.action === 'update-permissions') {
-      const user = listDemoAccounts().find((item) => item.account === input.account);
-      if (!user || user.isAdmin) throw new Error('Only non-administrator user permissions can be changed.');
-      user.permissions = input.permissions;
+      const user = updateDemoUserPermissions(input.account, Array.isArray(input.permissions) ? input.permissions : []);
       recordAudit({ actorId: admin.account, actorName: admin.name, actorRole: admin.role, action: 'update_permissions', targetType: 'User', targetId: user.staffId ?? user.account, detail: `Permissions updated for ${user.name}`, severity: 'security' });
       return NextResponse.json({ users: listDemoAccounts(), audit: getAuditEvents() });
     }

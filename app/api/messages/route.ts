@@ -13,6 +13,7 @@ function peopleForSession(session: NonNullable<Awaited<ReturnType<typeof getDemo
 export async function GET(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
+  if (!hasPermission(session, 'send_messages')) return NextResponse.json({ error: 'Message permission is required.' }, { status: 403 });
   const id = participantId(session);
   const conversationId = new URL(request.url).searchParams.get('conversationId');
   try {
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
+  if (!hasPermission(session, 'send_messages')) return NextResponse.json({ error: 'Message permission is required.' }, { status: 403 });
   try {
     const input = await request.json() as { conversationId?: string };
     if (!input.conversationId) return NextResponse.json({ error: 'A conversation is required.' }, { status: 400 });

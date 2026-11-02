@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getDemoSession } from '@/lib/auth';
+import { getDemoSession, hasPermission } from '@/lib/auth';
 import { listNotifications, markAllNotificationsRead, setNotificationRead } from '@/lib/private-messaging';
 
 function recipientId(session: Awaited<ReturnType<typeof getDemoSession>>) { return session?.staffId ?? session?.account ?? ''; }
@@ -7,6 +7,7 @@ function recipientId(session: Awaited<ReturnType<typeof getDemoSession>>) { retu
 export async function GET(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
+  if (!hasPermission(session, 'send_messages')) return NextResponse.json({ error: 'Notification permission is required.' }, { status: 403 });
   const unreadOnly = new URL(request.url).searchParams.get('unread') === 'true';
   const items = listNotifications(recipientId(session), unreadOnly);
   return NextResponse.json({ notifications: items, unreadCount: listNotifications(recipientId(session), true).length });
@@ -15,6 +16,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
+  if (!hasPermission(session, 'send_messages')) return NextResponse.json({ error: 'Notification permission is required.' }, { status: 403 });
   try {
     const input = await request.json() as { notificationId?: string; isRead?: boolean; markAllRead?: boolean };
     const id = recipientId(session);

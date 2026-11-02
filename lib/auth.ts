@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import type { PermissionId, ProvisionedUser, UserRole } from './access-control';
+import { permissionCatalog, type PermissionId, type ProvisionedUser, type UserRole } from './access-control';
 
 export interface DemoSession { account: string; name: string; role: string; initials: string; isAdmin: boolean; staffId: string | null; permissions: PermissionId[]; email?: string; }
 const fullAccess: PermissionId[] = ['view_dashboard', 'manage_clients', 'manage_tasks', 'view_finance', 'use_assistant', 'send_messages', 'manage_documents'];
@@ -16,6 +16,14 @@ export type DemoAccount = string;
 export function getDemoAccount(account: string | undefined): DemoSession | null { return account && demoAccounts[account] ? demoAccounts[account] : null; }
 export function listDemoAccounts() { return Object.values(demoAccounts).map((account) => ({ ...account, permissions: [...account.permissions] })); }
 export function hasPermission(session: DemoSession, permission: PermissionId) { return session.isAdmin || session.permissions.includes(permission); }
+export function updateDemoUserPermissions(account: string, permissions: PermissionId[]) {
+  const user = demoAccounts[account];
+  if (!user || user.isAdmin) throw new Error('Only non-administrator user permissions can be changed.');
+  const allowed = new Set(permissionCatalog.map((item) => item.id));
+  const normalized = Array.from(new Set(permissions)).filter((permission): permission is PermissionId => allowed.has(permission));
+  user.permissions = normalized;
+  return { ...user, permissions: [...user.permissions] };
+}
 export async function requirePermission(permission: PermissionId) {
   const session = await getDemoSession();
   if (!session) throw new Error('Sign in is required.');
@@ -26,7 +34,9 @@ export function provisionDemoUser(input: { name: string; email: string; role: Us
   const account = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '') || `user.${Date.now()}`;
   const unique = demoAccounts[account] ? `${account}.${Date.now().toString().slice(-4)}` : account;
   const staffId = `staff-${unique.replace(/\./g, '-')}`;
-  const user: ProvisionedUser = { account: unique, name: input.name.trim(), email: input.email.trim(), role: input.role, initials: input.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase(), isAdmin: false, staffId, permissions: input.permissions, active: true };
+  const allowed = new Set(permissionCatalog.map((item) => item.id));
+  const permissions = Array.from(new Set(input.permissions)).filter((permission): permission is PermissionId => allowed.has(permission));
+  const user: ProvisionedUser = { account: unique, name: input.name.trim(), email: input.email.trim(), role: input.role, initials: input.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase(), isAdmin: false, staffId, permissions, active: true };
   demoAccounts[unique] = user;
   return user;
 }
