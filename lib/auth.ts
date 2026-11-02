@@ -3,13 +3,14 @@ import type { PermissionId, ProvisionedUser, UserRole } from './access-control';
 
 export interface DemoSession { account: string; name: string; role: string; initials: string; isAdmin: boolean; staffId: string | null; permissions: PermissionId[]; email?: string; }
 const fullAccess: PermissionId[] = ['view_dashboard', 'manage_clients', 'manage_tasks', 'view_finance', 'use_assistant', 'send_messages', 'manage_documents'];
-const demoAccounts: Record<string, DemoSession> = {
+declare global { var __bkmDemoAccounts: Record<string, DemoSession> | undefined; }
+const demoAccounts: Record<string, DemoSession> = globalThis.__bkmDemoAccounts ?? (globalThis.__bkmDemoAccounts = {
   benjamin: { account: 'benjamin', name: 'Benjamin Mutua', role: 'System Administrator', initials: 'BM', isAdmin: true, staffId: null, permissions: fullAccess },
   david: { account: 'david', name: 'David Kamau', role: 'Audit Manager', initials: 'DK', isAdmin: false, staffId: 'staff-david', permissions: ['view_dashboard', 'manage_clients', 'manage_tasks', 'view_finance', 'use_assistant', 'send_messages', 'manage_documents'] },
   mary: { account: 'mary', name: 'Mary Wanjiku', role: 'Senior Auditor', initials: 'MW', isAdmin: false, staffId: 'staff-mary', permissions: ['view_dashboard', 'manage_tasks', 'view_finance', 'use_assistant', 'send_messages', 'manage_documents'] },
   faith: { account: 'faith', name: 'Faith Njeri', role: 'Audit Associate', initials: 'FN', isAdmin: false, staffId: 'staff-faith', permissions: ['view_dashboard', 'manage_tasks', 'use_assistant', 'send_messages', 'manage_documents'] },
   brian: { account: 'brian', name: 'Brian Otieno', role: 'Audit Associate', initials: 'BO', isAdmin: false, staffId: 'staff-brian', permissions: ['view_dashboard', 'manage_tasks', 'use_assistant', 'send_messages', 'manage_documents'] },
-};
+});
 
 export type DemoAccount = string;
 export function getDemoAccount(account: string | undefined): DemoSession | null { return account && demoAccounts[account] ? demoAccounts[account] : null; }

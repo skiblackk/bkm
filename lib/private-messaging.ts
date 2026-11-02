@@ -1,8 +1,14 @@
 import type { NotificationRecord, PrivateConversation, PrivateMessage } from './types';
 
-const conversations: PrivateConversation[] = [];
-const messages: PrivateMessage[] = [];
-const notifications: NotificationRecord[] = [];
+declare global {
+  var __bkmPrivateConversations: PrivateConversation[] | undefined;
+  var __bkmPrivateMessages: PrivateMessage[] | undefined;
+  var __bkmNotifications: NotificationRecord[] | undefined;
+}
+
+const conversations = globalThis.__bkmPrivateConversations ?? (globalThis.__bkmPrivateConversations = []);
+const messages = globalThis.__bkmPrivateMessages ?? (globalThis.__bkmPrivateMessages = []);
+const notifications = globalThis.__bkmNotifications ?? (globalThis.__bkmNotifications = []);
 
 function conversationIdFor(a: string, b: string) {
   return `conversation-${[a, b].sort().join('--')}`;
