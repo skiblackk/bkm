@@ -48,3 +48,11 @@ Deliver a trustworthy BenKim Associates operations platform for Benjamin Mutua: 
 - Accounting figures remain application-calculated; AI only explains verified results.
 - External Gmail/WhatsApp delivery is reported as verified only after a real provider response.
 - The first implementation batch prioritizes defects that affect correctness and demo trust; persistence migration follows as a separate controlled change.
+
+## Executive redesign extension
+
+The attached redesign brief expands the presentation and security bar without replacing the application. The admin route will become a role-aware command centre with grouped navigation, a compact top bar, an internal section index, and a priority-first information hierarchy. The workspace shell will use the same navigation language and will filter items by server-authorized permissions. Finance, staff, assistant, documents and messaging surfaces will not be exposed merely because a user can view the broad dashboard.
+
+The visual system remains the existing BKM direction but is tightened toward institutional financial reporting: warm ivory canvas, midnight rail, near-black type, restrained antique brass, muted status colors, tabular currency and rule-based tables. Repeated generic cards will be replaced selectively with statement tables, activity lists, compact metric summaries and responsive detail panels.
+
+The redesign will centralize configured demo date/reporting metadata, correct deadline-window semantics, preserve the broadcast bubble and private-message isolation, and keep all visible actions connected to real API routes. Demo data will remain explicitly labeled and no invented period comparisons or performance percentages will be shown.

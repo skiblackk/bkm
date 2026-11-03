@@ -33,6 +33,13 @@ function isBeforeToday(dateLabel: string) {
   return date.getTime() < new Date(`${getConfiguredDemoDate()}T00:00:00+03:00`).getTime();
 }
 
+function isWithinNextDays(dateLabel: string, days: number) {
+  const date = new Date(dateLabel.replace(/(\d+)(st|nd|rd|th)/, '$1'));
+  const start = new Date(`${getConfiguredDemoDate()}T00:00:00+03:00`).getTime();
+  if (Number.isNaN(date.getTime())) return false;
+  return date.getTime() >= start && date.getTime() <= start + days * 24 * 60 * 60 * 1000;
+}
+
 function enrich(store: DemoSnapshot): DemoSnapshot {
   const copy = JSON.parse(JSON.stringify(store)) as DemoSnapshot;
   copy.engagements = copy.engagements.map((engagement) => ({
@@ -118,7 +125,7 @@ export function getMetrics(store = getSnapshot()): DashboardMetrics {
     activeEngagements: store.engagements.filter((engagement) => engagement.status !== 'Completed').length,
     pendingTasks: store.tasks.filter((task) => task.status !== 'Completed').length,
     overdueTasks: store.tasks.filter((task) => task.status !== 'Completed' && isBeforeToday(task.dueDate)).length,
-    upcomingDeadlines: store.engagements.filter((engagement) => engagement.status !== 'Completed').length,
+    upcomingDeadlines: store.engagements.filter((engagement) => engagement.status !== 'Completed' && isWithinNextDays(engagement.deadline, 14)).length,
     pendingReviews: store.engagements.filter((engagement) => engagement.status === 'Under Review' || store.tasks.some((task) => task.engagementId === engagement.id && task.status === 'Under Review')).length,
   };
 }

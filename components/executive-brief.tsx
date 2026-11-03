@@ -8,7 +8,7 @@ import { DEMO_DATE } from '@/lib/demo-config';
 type Props = {
   data: DemoSnapshot;
   metrics: DashboardMetrics;
-  accounting: AccountingSnapshot;
+  accounting: AccountingSnapshot | null;
   onNavigate: (view: 'tasks' | 'engagements' | 'reports' | 'clients') => void;
 };
 
@@ -18,7 +18,7 @@ export default function ExecutiveBrief({ data, metrics, accounting, onNavigate }
   const overdue = data.tasks.filter((task) => task.status !== 'Completed' && new Date(task.dueDate).getTime() < new Date(DEMO_DATE).getTime());
   const atRisk = data.engagements.filter((engagement) => engagement.status !== 'Completed' && engagement.progress < 60);
   const pendingQuotes = data.quotations.filter((quotation) => quotation.status === 'Draft' || quotation.status === 'Ready for review');
-  const balanceState = accounting.balanceSheet.balanced ? 'Balanced' : 'Requires review';
+  const balanceState = accounting ? (accounting.balanceSheet.balanced ? 'Balanced' : 'Requires review') : 'Finance access restricted';
 
   return (
     <section className="executive-brief">
@@ -36,7 +36,7 @@ export default function ExecutiveBrief({ data, metrics, accounting, onNavigate }
       <div className="executive-brief__signals">
         <button type="button" onClick={() => onNavigate('tasks')} className="executive-signal"><span className="executive-signal__icon executive-signal__icon--danger"><CircleAlert size={16} /></span><span><strong>{overdue.length} overdue task{overdue.length === 1 ? '' : 's'}</strong><small>Open the task register</small></span><ArrowRight size={14} /></button>
         <button type="button" onClick={() => onNavigate('engagements')} className="executive-signal"><span className="executive-signal__icon executive-signal__icon--gold"><ShieldCheck size={16} /></span><span><strong>{atRisk.length} engagement{atRisk.length === 1 ? '' : 's'} need attention</strong><small>{metrics.upcomingDeadlines} deadlines in the review window</small></span><ArrowRight size={14} /></button>
-        <button type="button" onClick={() => onNavigate('reports')} className="executive-signal"><span className="executive-signal__icon executive-signal__icon--teal"><FileText size={16} /></span><span><strong>{money(accounting.incomeStatement.netProfit)} net profit</strong><small>{balanceState} · {pendingQuotes.length} quotation{pendingQuotes.length === 1 ? '' : 's'} open</small></span><ArrowRight size={14} /></button>
+        <button type="button" onClick={() => onNavigate('reports')} className="executive-signal"><span className="executive-signal__icon executive-signal__icon--teal"><FileText size={16} /></span><span><strong>{accounting ? `${money(accounting.incomeStatement.netProfit)} net profit` : 'Financial view restricted'}</strong><small>{balanceState} · {pendingQuotes.length} quotation{pendingQuotes.length === 1 ? '' : 's'} open</small></span><ArrowRight size={14} /></button>
       </div>
     </section>
   );

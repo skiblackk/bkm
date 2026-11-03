@@ -16,3 +16,12 @@
 - [ ] Central notifications support categories, priority, timestamps, read status, related links, preferences, and duplicate prevention.
 - [ ] Demo/test/real data boundaries are explicit; public demos use fictional records; refresh preserves saved work in persistent mode; reset is documented and safe.
 - [ ] Final verification report states PASS, PARTIAL, BLOCKED, or NOT IMPLEMENTED for every major feature, with the exact test and remaining limitation; production readiness is not claimed without security, data-integrity, accounting, and operational evidence.
+
+## Executive redesign outcomes
+- [ ] Admin command centre has grouped navigation, a light top bar, an internal section index, a compact executive heading, and a priority-first layout separating attention items from configuration and destructive controls.
+- [ ] Workspace navigation is role-aware, preserves all existing routes, provides a deliberate mobile navigation path, and removes or implements the current non-functional global-search affordance.
+- [ ] Dashboard and admin metrics use actual repository/accounting records, share one configured as-of date/reporting period, label demo data clearly, and do not invent comparisons or percentages.
+- [ ] Finance and accounting surfaces use professional statement tables with firm/report metadata, currency, period, reconciliation state, account drill-down, print-friendly hierarchy, and existing PDF/spreadsheet exports.
+- [ ] Server-side API responses and mutation routes enforce permissions by resource; unauthorized users cannot retrieve finance, staff, document, assistant or private-message data merely through a hidden route.
+- [ ] Existing broadcast delivery, private-message participant isolation, notifications, CRUD workflows, document processing, assistant behavior and exports remain regression-green after the redesign.
+- [ ] Responsive layouts provide mobile-safe decision views for attendance, finance and operational tables rather than relying only on wide horizontal scrolling.
