@@ -2,7 +2,7 @@ import { cloneSeedSnapshot } from './demo-data';
 import type { DashboardMetrics, DemoSnapshot, InternalMessage, Quotation, QuotationItem, ReportRecord, TaskPriority, TaskStatus } from './types';
 import { attendanceSeed, attendanceSettings } from './attendance-data';
 import type { AttendanceRecord, AccountingSnapshot, DocumentExtraction } from './extended-types';
-import { getAccountingSnapshot } from './accounting';
+import { addJournalEntry as postJournalEntry, getAccountingSnapshot, reverseJournalEntry as reversePostedJournal } from './accounting';
 import { approveDocumentExtraction, getDocumentExtraction } from './document-intelligence';
 import type { AuditEvent, PermissionId, UserRole } from './access-control';
 import { getConfiguredDemoDate } from './demo-config';
@@ -115,7 +115,9 @@ export function removeUser(staffId: string) {
   return getSnapshot();
 }
 export function assignTask(taskId: string, staffId: string) { recordAudit({ actorId: 'benjamin', actorName: 'Benjamin Mutua', actorRole: 'System Administrator', action: 'assign_task', targetType: 'Task', targetId: taskId, detail: `Task assigned to ${staffId}`, severity: 'change' }); return updateTask(taskId, { assignedTo: staffId }); }
-export function getAccounting(): AccountingSnapshot { return getAccountingSnapshot(); }
+export function getAccounting(options?: { periodStart?: string; periodEnd?: string }): AccountingSnapshot { return getAccountingSnapshot(options); }
+export function addJournalEntry(entry: Parameters<typeof postJournalEntry>[0]) { return postJournalEntry(entry); }
+export function reverseJournalEntry(reference: string) { return reversePostedJournal(reference); }
 export function getDocumentIntelligence(): DocumentExtraction { return getDocumentExtraction(); }
 export function approveDocument() { return approveDocumentExtraction(); }
 
