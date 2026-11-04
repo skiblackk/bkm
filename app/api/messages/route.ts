@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server';
 import { getDemoSession, hasPermission } from '@/lib/auth';
 import { getInternalMessages, getSnapshot, sendInternalMessage } from '@/lib/repository';
 import { getPrivateConversation, listPrivateConversations, markConversationRead, sendPrivateMessage } from '@/lib/private-messaging';
+import { getPresence } from '@/lib/presence';
 
 function participantId(session: Awaited<ReturnType<typeof getDemoSession>>) { return session?.staffId ?? session?.account ?? ''; }
 function peopleForSession(session: NonNullable<Awaited<ReturnType<typeof getDemoSession>>>) {
-  const staff = getSnapshot().staff.map((member) => ({ id: member.id, name: member.name, role: member.role }));
-  if (!session.isAdmin) staff.push({ id: 'benjamin', name: 'Benjamin Mutua', role: 'System Administrator' });
+  const staff = getSnapshot().staff.map((member) => ({ id: member.id, name: member.name, role: member.role, presence: getPresence(member.id) }));
+  if (!session.isAdmin) staff.push({ id: 'benjamin', name: 'Benjamin Mutua', role: 'System Administrator', presence: getPresence('benjamin') });
   return staff.filter((member, index, all) => all.findIndex((item) => item.id === member.id) === index && member.id !== participantId(session));
 }
 

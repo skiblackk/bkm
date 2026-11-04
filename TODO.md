@@ -25,3 +25,14 @@
 - [ ] Server-side API responses and mutation routes enforce permissions by resource; unauthorized users cannot retrieve finance, staff, document, assistant or private-message data merely through a hidden route.
 - [ ] Existing broadcast delivery, private-message participant isolation, notifications, CRUD workflows, document processing, assistant behavior and exports remain regression-green after the redesign.
 - [ ] Responsive layouts provide mobile-safe decision views for attendance, finance and operational tables rather than relying only on wide horizontal scrolling.
+
+
+## Standalone administration and presence outcomes
+- [ ] Access and Audit is a dedicated `/admin/access` workspace with a user directory, account status, role and effective permission visibility, searchable/filterable audit events, protected audit records, and no private message contents exposed.
+- [ ] People and Attendance is a dedicated `/admin/people` workspace with staff directory, employee role/capacity information, daily attendance records, present/late/absent metrics, attendance history context, and explicit separation between physical attendance and online presence.
+- [ ] Communications is a dedicated `/admin/communications` workspace with one-to-one private messaging, unread/read state, announcements, notification context, and server-side participant privacy.
+- [ ] Finance and Audit is a dedicated `/admin/finance` workspace with accounting-engine metrics, general ledger, reconciliation state, financial period/currency labels, audit context, and restricted PDF/XLSX exports.
+- [ ] All four workspaces have dedicated landing routes, contextual navigation, module-specific metrics, tables/filters, actions, reporting affordances, and permission enforcement at route/API/export boundaries.
+- [ ] Authorized staff presence records sign-in and meaningful heartbeat activity, distinguishes online from offline, shows last-seen information where permitted, expires stale sessions, and appears in staff and messaging views without relying on browser online events.
+- [ ] Presence notifications and preferences do not reveal private message content, do not duplicate on heartbeat updates, and prioritize message notifications over routine presence changes.
+- [ ] Separate-account tests cover direct-route/API restrictions, role and permission changes, audit protection, attendance, announcements, message privacy, presence expiry, duplicate presence events, financial access and export restrictions.

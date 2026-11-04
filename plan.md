@@ -56,3 +56,12 @@ The attached redesign brief expands the presentation and security bar without re
 The visual system remains the existing BKM direction but is tightened toward institutional financial reporting: warm ivory canvas, midnight rail, near-black type, restrained antique brass, muted status colors, tabular currency and rule-based tables. Repeated generic cards will be replaced selectively with statement tables, activity lists, compact metric summaries and responsive detail panels.
 
 The redesign will centralize configured demo date/reporting metadata, correct deadline-window semantics, preserve the broadcast bubble and private-message isolation, and keep all visible actions connected to real API routes. Demo data will remain explicitly labeled and no invented period comparisons or performance percentages will be shown.
+
+
+## Standalone administration and presence extension
+
+The administration area is now being split into four complete workspaces rather than four sections on one page: `/admin/access`, `/admin/people`, `/admin/communications`, and `/admin/finance`. They share the BKM shell and protected APIs but each has its own landing title, contextual module navigation, metrics, data tables, filters, actions and reporting affordances. The original `/admin` command centre remains the executive overview and links into these department workspaces.
+
+The presence design uses a server-side in-memory heartbeat store for the current demonstration runtime. Sign-in and authenticated heartbeat requests update `lastActiveAt`; presence is considered online only inside a short expiry window. Presence data is returned only from protected APIs to users with messaging/admin capability, and messaging lists render online/last-active state without including message bodies. Physical attendance remains sourced only from attendance records and is explicitly not inferred from presence.
+
+The standalone module UI deliberately labels the current accounting and attendance data as demonstration-period records, reuses the existing accounting engine and export endpoints, and keeps private conversation authorization in the existing server-side messaging route.
