@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { permissionCatalog, type PermissionId, type ProvisionedUser, type UserRole } from './access-control';
 import { isProductionDataMode } from './runtime-mode';
+import { createSupabaseServerClient } from './supabase/server';
 
 export interface DemoSession { account: string; name: string; role: string; initials: string; isAdmin: boolean; staffId: string | null; permissions: PermissionId[]; email?: string; }
 const fullAccess: PermissionId[] = ['view_dashboard', 'manage_clients', 'manage_tasks', 'view_finance', 'use_assistant', 'send_messages', 'manage_documents'];
@@ -42,4 +43,20 @@ export function provisionDemoUser(input: { name: string; email: string; role: Us
   demoAccounts[unique] = user;
   return user;
 }
-export async function getDemoSession() { const store = await cookies(); return getDemoAccount(store.get('bkm_demo_session')?.value); }
+export async function getDemoSession() {
+  const supabase = await createSupabaseServerClient();
+  if (supabase) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase.from('profiles').select('id, full_name, email, initials, is_admin, active, roles(name), user_permissions(permission_key)').eq('id', user.id).maybeSingle();
+      if (!profile || !profile.active) return null;
+      const role = Array.isArray(profile.roles) ? profile.roles[0]?.name : (profile.roles as { name?: string } | null)?.name;
+      const permissionRows = Array.isArray(profile.user_permissions) ? profile.user_permissions : [];
+      const permissions = profile.is_admin ? fullAccess : permissionRows.map((row: { permission_key: string }) => row.permission_key).filter((value): value is PermissionId => permissionCatalog.some((item) => item.id === value));
+      return { account: user.id, name: profile.full_name, role: role ?? 'Staff', initials: profile.initials, isAdmin: Boolean(profile.is_admin), staffId: user.id, permissions, email: profile.email };
+    }
+    if (isProductionDataMode) return null;
+  }
+  const store = await cookies();
+  return getDemoAccount(store.get('bkm_demo_session')?.value);
+}
