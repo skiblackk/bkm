@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import { getDemoAccount } from '@/lib/auth';
 import { recordAudit } from '@/lib/repository';
 import { touchPresence } from '@/lib/presence';
+import { isProductionDataMode } from '@/lib/runtime-mode';
 
 export async function POST(request: Request) {
+  if (isProductionDataMode) return NextResponse.json({ error: 'Demo authentication is disabled. Configure Supabase Auth before serving the application.' }, { status: 503 });
   const body = await request.json().catch(() => ({}));
   const session = getDemoAccount(body.account);
   if (!session) return NextResponse.json({ error: 'Select a seeded demonstration account.' }, { status: 400 });

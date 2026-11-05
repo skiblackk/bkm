@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient, createQuotation, createReport, createTask, updateTask } from '@/lib/repository';
 import { z } from 'zod';
 import { requirePermission } from '@/lib/auth';
+import { isProductionDataMode } from '@/lib/runtime-mode';
 
 const actionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('updateTask'), taskId: z.string(), status: z.enum(['Not Started', 'In Progress', 'Blocked', 'Submitted', 'Under Review', 'Completed']).optional(), assignedTo: z.string().optional() }),
@@ -13,6 +14,7 @@ const actionSchema = z.discriminatedUnion('action', [
 
 export async function POST(request: Request) {
   try {
+    if (isProductionDataMode) return NextResponse.json({ error: 'The production database repository is not connected. No in-memory mutation was performed.' }, { status: 503 });
     const input = actionSchema.parse(await request.json());
     await requirePermission(input.action === 'createQuotation' || input.action === 'createClient' ? 'manage_clients' : input.action === 'createReport' ? 'view_finance' : 'manage_tasks');
     if (input.action === 'createTask') return NextResponse.json({ snapshot: createTask(input), message: 'Task created in the demonstration environment.' });

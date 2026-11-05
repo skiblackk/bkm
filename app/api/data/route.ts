@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { getDemoSession, hasPermission } from '@/lib/auth';
 import { getAccounting, getAttendance, getMetrics, getSnapshot } from '@/lib/repository';
 import { getConfiguredDemoDate } from '@/lib/demo-config';
+import { isProductionDataMode } from '@/lib/runtime-mode';
 export async function GET() {
+  if (isProductionDataMode) return NextResponse.json({ error: 'The production Supabase repository is not connected. No demonstration records are served.' }, { status: 503 });
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
   if (!hasPermission(session, 'view_dashboard')) return NextResponse.json({ error: 'Dashboard permission is required.' }, { status: 403 });

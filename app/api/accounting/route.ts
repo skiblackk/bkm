@@ -3,11 +3,13 @@ import { z } from 'zod';
 import { getDemoSession, hasPermission } from '@/lib/auth';
 import { addJournalEntry, getAccounting, reverseJournalEntry } from '@/lib/repository';
 import { recordAudit } from '@/lib/repository';
+import { isProductionDataMode } from '@/lib/runtime-mode';
 
 const lineSchema = z.object({ accountId: z.string().min(1), debit: z.number().finite().nonnegative(), credit: z.number().finite().nonnegative() }).refine((line) => !(line.debit > 0 && line.credit > 0), 'A journal line cannot contain both debit and credit.');
 const entrySchema = z.object({ id: z.string().min(1).max(80), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), description: z.string().trim().min(1).max(240), reference: z.string().trim().min(1).max(80), lines: z.array(lineSchema).min(2).max(50) });
 
 export async function GET(request: Request) {
+  if (isProductionDataMode) return NextResponse.json({ error: 'The production database repository is not connected. No demonstration accounting records are served.' }, { status: 503 });
   const session = await getDemoSession();
   if (!session || !hasPermission(session, 'view_finance')) return NextResponse.json({ error: 'Finance permission is required.' }, { status: 403 });
   const url = new URL(request.url); const periodStart = url.searchParams.get('periodStart') ?? undefined; const periodEnd = url.searchParams.get('periodEnd') ?? undefined;
@@ -16,6 +18,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    if (isProductionDataMode) return NextResponse.json({ error: 'The production database repository is not connected. No in-memory journal mutation was performed.' }, { status: 503 });
     const session = await getDemoSession();
     if (!session?.isAdmin) return NextResponse.json({ error: 'Only an administrator can post or reverse journal entries.' }, { status: 403 });
     const input = await request.json() as { action?: string; reference?: string; entry?: unknown };

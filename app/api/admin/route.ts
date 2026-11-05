@@ -6,6 +6,7 @@ import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-we
 import { getIntegrationStatus } from '@/lib/integrations';
 import { decideAiTriage, getAiTriageItems } from '@/lib/ai-triage';
 import { getConfiguredDemoDate } from '@/lib/demo-config';
+import { isProductionDataMode } from '@/lib/runtime-mode';
 
 async function requireAdmin() {
   const session = await getDemoSession();
@@ -14,6 +15,7 @@ async function requireAdmin() {
 }
 
 export async function GET() {
+  if (isProductionDataMode) return NextResponse.json({ error: 'The production database repository is not connected. No demonstration administration records are served.' }, { status: 503 });
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
   if (!session.isAdmin) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
@@ -26,6 +28,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    if (isProductionDataMode) return NextResponse.json({ error: 'The production database repository is not connected. No in-memory administration mutation was performed.' }, { status: 503 });
     const input = await request.json();
     const session = await getDemoSession();
     if (!session) throw new Error('Sign-in is required.');

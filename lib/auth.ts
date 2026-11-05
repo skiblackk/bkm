@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { permissionCatalog, type PermissionId, type ProvisionedUser, type UserRole } from './access-control';
+import { isProductionDataMode } from './runtime-mode';
 
 export interface DemoSession { account: string; name: string; role: string; initials: string; isAdmin: boolean; staffId: string | null; permissions: PermissionId[]; email?: string; }
 const fullAccess: PermissionId[] = ['view_dashboard', 'manage_clients', 'manage_tasks', 'view_finance', 'use_assistant', 'send_messages', 'manage_documents'];
@@ -13,8 +14,8 @@ const demoAccounts: Record<string, DemoSession> = globalThis.__bkmDemoAccounts ?
 });
 
 export type DemoAccount = string;
-export function getDemoAccount(account: string | undefined): DemoSession | null { return account && demoAccounts[account] ? demoAccounts[account] : null; }
-export function listDemoAccounts() { return Object.values(demoAccounts).map((account) => ({ ...account, permissions: [...account.permissions] })); }
+export function getDemoAccount(account: string | undefined): DemoSession | null { return isProductionDataMode ? null : account && demoAccounts[account] ? demoAccounts[account] : null; }
+export function listDemoAccounts() { return isProductionDataMode ? [] : Object.values(demoAccounts).map((account) => ({ ...account, permissions: [...account.permissions] })); }
 export function hasPermission(session: DemoSession, permission: PermissionId) { return session.isAdmin || session.permissions.includes(permission); }
 export function updateDemoUserPermissions(account: string, permissions: PermissionId[]) {
   const user = demoAccounts[account];
@@ -31,6 +32,7 @@ export async function requirePermission(permission: PermissionId) {
   return session;
 }
 export function provisionDemoUser(input: { name: string; email: string; role: UserRole; permissions: PermissionId[] }): DemoSession {
+  if (isProductionDataMode) throw new Error('Demo user provisioning is disabled in production. Use Supabase Auth and an administrator-approved profile workflow.');
   const account = input.name.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '') || `user.${Date.now()}`;
   const unique = demoAccounts[account] ? `${account}.${Date.now().toString().slice(-4)}` : account;
   const staffId = `staff-${unique.replace(/\./g, '-')}`;

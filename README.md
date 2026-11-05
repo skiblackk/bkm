@@ -1,6 +1,6 @@
 # BKM Operations Hub
 
-A functional internal-management demonstration for BenKim Associates (BKM). The product is explicitly a **DEMO ENVIRONMENT** and uses fictional organizations, staff, documents, pricing and accounting records only.
+A functional internal-management demonstration for BenKim Associates (BKM). The repository contains fictional fixtures for local development, but production mode now refuses demo authentication and in-memory business records until the real Supabase repository is connected.
 
 ## Run locally
 
@@ -30,14 +30,14 @@ The demonstration uses an explicit historical operating date so the seeded recor
 
 ## Demo credentials
 
-Choose a seeded account on the login screen. These are demonstration sessions only. Production deployment must connect Supabase Auth with email/password, password reset, account status and configurable RBAC before real client data is introduced.
+Choose a seeded account on the login screen only when running in local demo mode. These are demonstration sessions only. Set `BKM_REQUIRE_REAL_AUTH=true` (and use `NODE_ENV=production`) to disable the demo account endpoint and all in-memory business APIs.
 
 ## Security and production boundaries
 
 - Secret values are server-side only; no credentials are embedded in client code.
 - Workspace data, assistant actions, document access, exports and internal messages require a signed-in session plus the relevant server-side permission. Administrator actions remain restricted to Benjamin Mutua.
 - AI access is routed through controlled server tools; no arbitrary SQL is exposed.
-- Supabase migrations enable RLS on all business tables and limit AI conversation records to the owning user.
+- Supabase migrations enable RLS on all business tables. Migration `005_production_rls.sql` replaces broad authenticated reads with permission-scoped policies using `user_permissions`; it must be applied and tested against the target Supabase project before production use.
 - Documents are currently represented through a private-storage-ready repository boundary; real Supabase Storage buckets, signed URLs and file parsing still need production configuration.
 - WhatsApp Business, transactional email, client portal, full notification center, DOCX export, configurable RBAC UI, real Supabase Auth wiring, and live database repository reads remain production stages rather than being presented as complete.
 
@@ -52,7 +52,7 @@ Choose a seeded account on the login screen. These are demonstration sessions on
 
 ## Demo honesty and reset boundary
 
-- This repository is still a controlled in-memory demonstration repository. Changes survive a page refresh while the server process remains alive, but a process restart resets the seeded state. The README and UI label fictional records, drafts, approvals and demo samples explicitly.
+- Local demo mode is a controlled in-memory demonstration repository. Changes survive a page refresh while the server process remains alive, but a process restart resets the seeded state. Production mode refuses this repository instead of presenting it as company data.
 - The Respond.io Gmail bridge was tested for an approved send in the connected workspace. WhatsApp and SMS remain provider-configuration stages until their channels are connected and tested.
 - The AI triage panel is a deterministic, record-safe demonstration classifier today. It explains why it escalated a message and requires Benjamin’s approval; a production deployment should persist inbound events and drafts in Supabase and replace the classifier with the approved server-side LLM workflow.
 - The accounting reports are calculated by the deterministic journal/ledger engine. Document approval is deliberately separate from posting: the current demonstration does not silently create journal entries from an extraction.
@@ -60,12 +60,16 @@ Choose a seeded account on the login screen. These are demonstration sessions on
 
 ## Next production stages
 
-1. Connect Supabase Auth, user profiles and configurable RBAC policies.
+1. Connect Supabase Auth, user profiles and configurable RBAC policies; establish the first administrator through a private operator-assisted process, never public registration.
 2. Replace in-memory repository writes with Supabase server repositories and transactions.
 3. Connect Supabase Storage private buckets, signed URLs and real PDF/DOCX/XLSX extraction.
 4. Add accounting posting approvals, AR/AP, reconciliation and immutable financial audit history.
 5. Add DOCX generation, client portal, WhatsApp/SMS providers and notification preferences.
 6. Add rate limiting, monitoring, deployment configuration, security review and full automated test coverage.
+
+## Production readiness boundary
+
+The current application does not claim production readiness. A real deployment requires Supabase Auth session integration, a server-side Supabase data repository for every business surface, applied migrations including `005_production_rls.sql`, configured Storage, and role tests against at least three real test accounts. Until those prerequisites are complete, production mode returns `503 not_ready` from `/api/health`, refuses demo sign-in, and returns honest repository-not-connected errors rather than fictional records.
 
 ## Communication webhooks
 The protected admin command center exposes a normalized inbound alert endpoint for the three company channels:
