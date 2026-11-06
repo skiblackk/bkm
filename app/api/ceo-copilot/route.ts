@@ -11,7 +11,7 @@ const schema = z.object({ question: z.string().trim().min(2).max(4000), gmailEma
 export async function POST(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
-  if (!session.isAdmin || session.account !== 'benjamin') return NextResponse.json({ error: 'The CEO Copilot is available only in Benjamin Mutua’s administrator account.' }, { status: 403 });
+  if (!session.isAdmin) return NextResponse.json({ error: 'The leadership briefing is available to administrators.' }, { status: 403 });
   try {
     const input = schema.parse(await request.json());
     return NextResponse.json(await askCeoCopilot(input.question, input.history ?? [], 0, input.gmailEmail));
