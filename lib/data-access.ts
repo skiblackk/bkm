@@ -82,10 +82,15 @@ export async function getAccounting(options?: { periodStart?: string; periodEnd?
   return demo.getAccounting(options);
 }
 
-export async function addJournalEntry(entry: JournalEntry) {
-  if (useProduction()) return production.addJournalEntry(entry);
+export async function addJournalEntry(entry: JournalEntry, createdBy?: string | null) {
+  if (useProduction()) return production.addJournalEntry(entry, createdBy);
   assertRepositoryReady();
   return demo.addJournalEntry(entry);
+}
+
+export async function updateJournalStatus(reference: string, options: { to: string; from: string[]; actorId: string; actorName: string; isAdmin: boolean; overrideReason?: string }) {
+  if (useProduction()) return production.updateJournalStatus(reference, options);
+  throw new Error('The journal workflow requires the production repository.');
 }
 
 export async function reverseJournalEntry(reference: string) {

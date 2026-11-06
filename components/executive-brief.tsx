@@ -30,7 +30,7 @@ export default function ExecutiveBrief({ data, metrics, accounting, onNavigate }
         </div>
         <div className="executive-brief__date">
           <CalendarDays size={16} className="text-gold" />
-          <div><div className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/45">Reporting date</div><div className="mt-1 text-sm font-semibold text-white">01 October 2026</div><div className="mt-1 text-[11px] text-white/45">Nairobi · EAT · demo period</div></div>
+          <div><div className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/45">Reporting date</div><div className="mt-1 text-sm font-semibold text-white">01 October 2026</div><div className="mt-1 text-[11px] text-white/45">Nairobi · EAT</div></div>
         </div>
       </div>
       <div className="executive-brief__signals">

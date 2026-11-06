@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDemoSession, hasPermission } from '@/lib/auth';
 import { getAccounting, getAttendance, getMetrics, getSnapshot } from '@/lib/data-access';
 import { getConfiguredDemoDate } from '@/lib/demo-config';
+import { businessDate } from '@/lib/business-clock';
 import { isProductionDataMode, hasSupabaseConfiguration } from '@/lib/runtime-mode';
 
 export async function GET() {
@@ -13,17 +14,22 @@ export async function GET() {
     const fullSnapshot = await getSnapshot();
     const canManageClients = hasPermission(session, 'manage_clients');
     const canManageTasks = hasPermission(session, 'manage_tasks');
+    // Whitelist every collection explicitly. A spread here would re-expose
+    // records that the permission checks deliberately emptied.
+    const canSeeDirectory = canManageTasks || session.isAdmin || hasPermission(session, 'view_team_attendance');
     const snapshot = {
-      ...fullSnapshot,
       clients: canManageClients ? fullSnapshot.clients : [],
       engagements: canManageClients ? fullSnapshot.engagements : [],
       quotations: canManageClients ? fullSnapshot.quotations : [],
-      tasks: canManageTasks ? fullSnapshot.tasks : [],
-      staff: canManageTasks || session.isAdmin ? fullSnapshot.staff : [],
+      tasks: canManageTasks ? fullSnapshot.tasks : fullSnapshot.tasks.filter((task) => task.assignedTo === session.staffId),
+      staff: canSeeDirectory ? fullSnapshot.staff : fullSnapshot.staff.filter((member) => member.id === session.staffId),
       activities: canManageClients || canManageTasks ? fullSnapshot.activities : [],
+      reports: hasPermission(session, 'view_reports') || canManageClients ? fullSnapshot.reports : [],
+      documents: hasPermission(session, 'view_documents') ? fullSnapshot.documents : [],
+      environment: fullSnapshot.environment,
     };
     const attendance = await getAttendance();
-    const checkIn = session?.staffId ? attendance.records.find((record) => record.staffId === session.staffId && record.date === getConfiguredDemoDate()) ?? null : null;
+    const checkIn = session?.staffId ? attendance.records.find((record) => record.staffId === session.staffId && record.date === (isProductionDataMode ? businessDate() : getConfiguredDemoDate())) ?? null : null;
     const accounting = hasPermission(session, 'view_finance') ? await getAccounting() : null;
     return NextResponse.json({ snapshot, metrics: getMetrics(snapshot), accounting, attendance: { settings: attendance.settings, checkIn }, source: isProductionDataMode ? 'supabase repository' : 'server-side demonstration repository' });
   } catch (error) {

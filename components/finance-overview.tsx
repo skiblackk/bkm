@@ -23,7 +23,7 @@ export function TrialBalancePanel({ accounting }: { accounting: AccountingSnapsh
 
 export function FinancePulse({ accounting }: { accounting: AccountingSnapshot }) {
   const cards = [{ label: 'Revenue', value: accounting.incomeStatement.revenue, icon: TrendingUp }, { label: 'Net profit', value: accounting.incomeStatement.netProfit, icon: ArrowUpRight }, { label: 'Cash movement', value: accounting.cashFlow.netChange, icon: Scale }];
-  return <div className="grid gap-3 sm:grid-cols-3">{cards.map(({ label, value, icon: Icon }, index) => <div key={label} className="panel animate-rise p-4" style={{ animationDelay: `${index * 80}ms` }}><div className="flex items-center justify-between"><span className="eyebrow">{label}</span><span className="flex h-7 w-7 items-center justify-center rounded-full bg-gold/15 text-navy"><Icon size={14} /></span></div><div className="mt-3 text-2xl font-semibold tracking-[-0.04em] tabular text-navy">KES {money(value)}</div><div className="mt-2 text-[11px] text-slate-400">Posted in current demo period</div></div>)}</div>;
+  return <div className="grid gap-3 sm:grid-cols-3">{cards.map(({ label, value, icon: Icon }, index) => <div key={label} className="panel animate-rise p-4" style={{ animationDelay: `${index * 80}ms` }}><div className="flex items-center justify-between"><span className="eyebrow">{label}</span><span className="flex h-7 w-7 items-center justify-center rounded-full bg-gold/15 text-navy"><Icon size={14} /></span></div><div className="mt-3 text-2xl font-semibold tracking-[-0.04em] tabular text-navy">KES {money(value)}</div><div className="mt-2 text-[11px] text-slate-400">Posted in current period</div></div>)}</div>;
 }
 
 export function FinancialStatementsPanel({ accounting }: { accounting: AccountingSnapshot }) {

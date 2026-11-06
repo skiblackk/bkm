@@ -3,6 +3,7 @@ import { computeAccountingSnapshot, validateJournalEntry, type ChartAccount } fr
 import { enrichSnapshot, getMetrics } from './repository';
 import { searchWorkspaceForAssistant, formatWorkspaceAssistantAnswer, type AssistantData, type AssistantSearchResult } from './assistant-search';
 import { getConfiguredDemoDate } from './demo-config';
+import { attendanceStatusFor, businessDate, businessTime, durationMinutesBetween } from './business-clock';
 import { attendanceSettings as defaultAttendanceSettings } from './attendance-data';
 import type { DemoSnapshot, InternalMessage, Quotation, ReportRecord, TaskPriority, TaskStatus } from './types';
 import type { AccountingSnapshot, AttendanceRecord, DocumentExtraction, JournalEntry, JournalStatus } from './extended-types';
@@ -241,17 +242,21 @@ export async function getAttendance() {
 
 export async function updateAttendance(staffId: string, action: 'check-in' | 'check-out', note?: string) {
   const client = db();
-  const today = getConfiguredDemoDate();
+  const today = businessDate();
   const { data: existing } = await client.from('attendance_records').select('*').eq('staff_id', staffId).eq('attendance_date', today).maybeSingle();
   if (action === 'check-in') {
     if (existing?.check_in) throw new Error('Duplicate check-in is not allowed for the same working day.');
-    const row = { staff_id: staffId, attendance_date: today, status: 'Late', check_in: '08:10', check_out: null, note: note ?? null, duration_minutes: null };
+    const { settings } = await getAttendance();
+    const checkIn = businessTime();
+    const status = attendanceStatusFor(checkIn, settings.expectedCheckIn, settings.graceMinutes ?? 0);
+    const row = { staff_id: staffId, attendance_date: today, status, check_in: checkIn, check_out: null, note: note ?? null, duration_minutes: null };
     const { error } = existing ? await client.from('attendance_records').update(row).eq('id', existing.id) : await client.from('attendance_records').insert(row);
     if (error) throw new Error(error.message);
   } else {
     if (!existing?.check_in) throw new Error('Check in before checking out.');
     if (existing.check_out) throw new Error('This staff member has already checked out today.');
-    const { error } = await client.from('attendance_records').update({ check_out: '17:00', duration_minutes: 530 }).eq('id', existing.id);
+    const checkOut = businessTime();
+    const { error } = await client.from('attendance_records').update({ check_out: checkOut, duration_minutes: durationMinutesBetween(clock(existing.check_in) ?? checkOut, checkOut) }).eq('id', existing.id);
     if (error) throw new Error(error.message);
   }
   await recordAudit({ actorId: staffId, actorName: staffId, actorRole: 'Team member', action, targetType: 'Attendance', targetId: staffId, detail: `${action} recorded for ${staffId}`, severity: 'info' });
@@ -406,16 +411,44 @@ export async function getAccounting(options?: { periodStart?: string; periodEnd?
   return computeAccountingSnapshot(chart, journal, options);
 }
 
-export async function addJournalEntry(entry: JournalEntry) {
+export async function addJournalEntry(entry: JournalEntry, createdBy?: string | null) {
   const { chart, journal } = await loadAccountingRows();
   validateJournalEntry(entry, journal.map((item) => item.reference), chart);
   const client = db();
-  const { data: created, error } = await client.from('journal_entries').insert({ entry_date: entry.date, description: entry.description, reference: entry.reference, status: entry.status ?? 'Posted' }).select('id').single();
+  const { data: created, error } = await client.from('journal_entries').insert({ entry_date: entry.date, description: entry.description, reference: entry.reference, status: entry.status ?? 'Draft', created_by: createdBy ?? null }).select('id').single();
   if (error) throw new Error(error.message);
   const lineRows = entry.lines.map((line) => ({ journal_entry_id: created.id, account_id: line.accountId, debit: line.debit, credit: line.credit }));
   const { error: lineError } = await client.from('journal_entry_lines').insert(lineRows);
   if (lineError) throw new Error(lineError.message);
   return getAccounting();
+}
+
+/**
+ * Journal state machine with segregation of duties.
+ * An entry moves Draft -> Submitted -> Approved -> Posted. The preparer
+ * (created_by) can never approve or post their own entry. Only an
+ * administrator may override, and every override is returned to the caller so
+ * the route can write a security-severity audit record with the reason.
+ */
+export async function updateJournalStatus(reference: string, options: { to: string; from: string[]; actorId: string; actorName: string; isAdmin: boolean; overrideReason?: string }) {
+  const client = db();
+  const { data: entry, error } = await client.from('journal_entries').select('*').eq('reference', reference).maybeSingle();
+  if (error) return { ok: false as const, status: 400, message: error.message };
+  if (!entry) return { ok: false as const, status: 404, message: `Journal ${reference} was not found.` };
+  const current = String(entry.status ?? 'Draft');
+  if (!options.from.includes(current)) return { ok: false as const, status: 409, message: `Journal ${reference} is ${current}; only ${options.from.join(' or ')} entries can be moved to ${options.to}.` };
+  const preparedBy = entry.created_by ? String(entry.created_by) : null;
+  const postingActions = options.to === 'Approved' || options.to === 'Posted';
+  const isOwnEntry = Boolean(preparedBy && preparedBy === options.actorId);
+  if (postingActions && isOwnEntry) {
+    if (!options.isAdmin) return { ok: false as const, status: 403, message: `Segregation of duties: you prepared ${reference}, so another person must ${options.to === 'Approved' ? 'approve' : 'post'} it.` };
+    if (!options.overrideReason || options.overrideReason.trim().length < 5) return { ok: false as const, status: 400, message: 'Overriding segregation of duties requires a written reason of at least 5 characters.' };
+  }
+  const patch: Record<string, unknown> = { status: options.to };
+  const { error: updateError } = await client.from('journal_entries').update(patch).eq('id', entry.id);
+  if (updateError) return { ok: false as const, status: 400, message: updateError.message };
+  const accounting = await getAccounting();
+  return { ok: true as const, accounting, sodOverride: postingActions && isOwnEntry, preparedBy };
 }
 
 export async function reverseJournalEntry(reference: string) {
