@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDemoSession, listDemoAccounts, provisionDemoUser, updateDemoUserPermissions } from '@/lib/auth';
+import { listWorkspaceUsers } from '@/lib/data-access';
 import { addStaffMember, approveDocument, assignTask, getAccounting, getAttendance, getDocumentIntelligence, getInternalMessages, getSnapshot, removeUser, sendInternalMessage, updateAttendance, getAuditEvents, recordAudit } from '@/lib/data-access';
 import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-webhooks';
 import { getIntegrationStatus } from '@/lib/integrations';
@@ -20,9 +21,10 @@ export async function GET() {
   if (!session.isAdmin) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
   const snapshot = await getSnapshot();
   const attendance = await getAttendance();
-  const missing = attendance.records.filter((record) => record.date === getConfiguredDemoDate() && record.status === 'Not Checked In').map((record) => snapshot.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId);
+  const todayKey = isProductionDataMode ? new Date().toISOString().slice(0, 10) : getConfiguredDemoDate();
+  const missing = attendance.records.filter((record) => record.date === todayKey && record.status === 'Not Checked In').map((record) => snapshot.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId);
   const communicationAlerts = getCommunicationAlerts();
-  return NextResponse.json({ snapshot, attendance, missing, accounting: await getAccounting(), document: await getDocumentIntelligence(), messages: await getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: listDemoAccounts(), audit: await getAuditEvents() });
+  return NextResponse.json({ snapshot, attendance, missing, accounting: await getAccounting(), document: await getDocumentIntelligence(), messages: await getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: await listWorkspaceUsers(), audit: await getAuditEvents(), environment: { mode: isProductionDataMode ? 'production' : 'demonstration', today: todayKey } });
 }
 
 export async function POST(request: Request) {
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
     if (input.action === 'update-permissions') {
       const user = updateDemoUserPermissions(input.account, Array.isArray(input.permissions) ? input.permissions : []);
       await recordAudit({ actorId: admin.account, actorName: admin.name, actorRole: admin.role, action: 'update_permissions', targetType: 'User', targetId: user.staffId ?? user.account, detail: `Permissions updated for ${user.name}`, severity: 'security' });
-      return NextResponse.json({ users: listDemoAccounts(), audit: await getAuditEvents() });
+      return NextResponse.json({ users: await listWorkspaceUsers(), audit: await getAuditEvents() });
     }
     if (input.action === 'audit') return NextResponse.json({ audit: await getAuditEvents({ actorId: input.actorId, action: input.filterAction }) });
     if (input.action === 'approve-document') return NextResponse.json({ document: await approveDocument() });

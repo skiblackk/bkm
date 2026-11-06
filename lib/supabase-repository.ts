@@ -258,6 +258,23 @@ export async function updateAttendance(staffId: string, action: 'check-in' | 'ch
   return getAttendance();
 }
 
+export async function listWorkspaceUsers(): Promise<Array<{ account: string; name: string; email: string; role: string; permissions: string[]; isAdmin: boolean; active: boolean }>> {
+  const client = db();
+  const { data, error } = await client.from('profiles')
+    .select('id, full_name, email, is_admin, active, roles(name), user_permissions!user_id(permission_key)')
+    .order('full_name', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    account: String(row.id),
+    name: String(row.full_name),
+    email: String(row.email ?? ''),
+    role: ((row.roles as { name?: string } | null)?.name) ?? 'Team Member',
+    permissions: ((row.user_permissions ?? []) as Array<{ permission_key: string }>).map((p) => p.permission_key),
+    isAdmin: Boolean(row.is_admin),
+    active: Boolean(row.active),
+  }));
+}
+
 export async function getInternalMessages(): Promise<InternalMessage[]> {
   const client = db();
   const { data, error } = await client.from('internal_messages').select('*').order('created_at', { ascending: false }).limit(200);

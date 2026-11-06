@@ -159,3 +159,9 @@ export async function formatAssistantAnswer(question: string, result: Awaited<Re
   assertRepositoryReady();
   return demo.formatAssistantAnswer(question, result as ReturnType<typeof demo.searchForAssistant>);
 }
+
+export async function listWorkspaceUsers() {
+  if (useProduction()) return (await import('./supabase-repository')).listWorkspaceUsers();
+  return (await import('./auth')).listDemoAccounts();
+}
+
