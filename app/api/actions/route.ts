@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { createClient, createQuotation, createReport, createTask, updateTask } from '@/lib/repository';
+import { createClient, createQuotation, createReport, createTask, updateTask } from '@/lib/data-access';
 import { z } from 'zod';
 import { requirePermission } from '@/lib/auth';
-import { isProductionDataMode } from '@/lib/runtime-mode';
+import { isProductionDataMode, hasSupabaseConfiguration } from '@/lib/runtime-mode';
 
 const actionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('updateTask'), taskId: z.string(), status: z.enum(['Not Started', 'In Progress', 'Blocked', 'Submitted', 'Under Review', 'Completed']).optional(), assignedTo: z.string().optional() }),
@@ -14,18 +14,18 @@ const actionSchema = z.discriminatedUnion('action', [
 
 export async function POST(request: Request) {
   try {
-    if (isProductionDataMode) return NextResponse.json({ error: 'The production database repository is not connected. No in-memory mutation was performed.' }, { status: 503 });
+    if (isProductionDataMode && !hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
     const input = actionSchema.parse(await request.json());
     await requirePermission(input.action === 'createQuotation' || input.action === 'createClient' ? 'manage_clients' : input.action === 'createReport' ? 'view_finance' : 'manage_tasks');
-    if (input.action === 'createTask') return NextResponse.json({ snapshot: createTask(input), message: 'Task created in the demonstration environment.' });
+    if (input.action === 'createTask') return NextResponse.json({ snapshot: await createTask(input), message: 'Task created in the demonstration environment.' });
     if (input.action === 'updateTask') {
-      const snapshot = updateTask(input.taskId, { status: input.status, assignedTo: input.assignedTo });
+      const snapshot = await updateTask(input.taskId, { status: input.status, assignedTo: input.assignedTo });
       if (!snapshot) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
       return NextResponse.json({ snapshot, message: 'Task updated in the demonstration environment.' });
     }
-    if (input.action === 'createClient') return NextResponse.json({ snapshot: createClient(input), message: 'Client added to the portfolio.' });
-    if (input.action === 'createQuotation') return NextResponse.json({ snapshot: createQuotation(input), message: 'Quotation prepared as a demonstration draft.' });
-    const generated = createReport(input);
+    if (input.action === 'createClient') return NextResponse.json({ snapshot: await createClient(input), message: 'Client added to the portfolio.' });
+    if (input.action === 'createQuotation') return NextResponse.json({ snapshot: await createQuotation(input), message: 'Quotation prepared as a demonstration draft.' });
+    const generated = await createReport(input);
     return NextResponse.json({ snapshot: generated.snapshot, report: generated.report, message: 'Draft demonstration report generated.' });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to process action' }, { status: 400 });

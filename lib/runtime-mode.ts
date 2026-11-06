@@ -5,9 +5,8 @@ export const hasDatabaseConfiguration = Boolean(process.env.DATABASE_URL || hasS
 export function assertRealDataReady() {
   if (!isProductionDataMode) return;
   if (!hasSupabaseConfiguration) throw new Error('Production authentication is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY before serving internal data.');
-  throw new Error('Production Supabase data repository is not connected yet. The application is refusing to serve demonstration records.');
 }
 
 export function productionReadiness() {
-  return { mode: isProductionDataMode ? 'production' : 'demo', supabaseConfigured: hasSupabaseConfiguration, databaseConfigured: hasDatabaseConfiguration, demoRepositoryAllowed: !isProductionDataMode, realRepositoryConnected: false } as const;
+  return { mode: isProductionDataMode ? 'production' : 'demo', supabaseConfigured: hasSupabaseConfiguration, databaseConfigured: hasDatabaseConfiguration, demoRepositoryAllowed: !isProductionDataMode, realRepositoryConnected: hasSupabaseConfiguration } as const;
 }
