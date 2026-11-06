@@ -258,10 +258,10 @@ export async function updateAttendance(staffId: string, action: 'check-in' | 'ch
   return getAttendance();
 }
 
-export async function listWorkspaceUsers(): Promise<Array<{ account: string; name: string; email: string; role: string; permissions: string[]; isAdmin: boolean; active: boolean }>> {
+export async function listWorkspaceUsers(): Promise<Array<{ account: string; name: string; email: string; role: string; permissions: string[]; isAdmin: boolean; active: boolean; approvalStatus: string; createdAt: string }>> {
   const client = db();
   const { data, error } = await client.from('profiles')
-    .select('id, full_name, email, is_admin, active, roles(name), user_permissions!user_id(permission_key)')
+    .select('id, full_name, email, is_admin, active, approval_status, created_at, roles(name), user_permissions!user_id(permission_key)')
     .order('full_name', { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => ({
@@ -272,7 +272,62 @@ export async function listWorkspaceUsers(): Promise<Array<{ account: string; nam
     permissions: ((row.user_permissions ?? []) as Array<{ permission_key: string }>).map((p) => p.permission_key),
     isAdmin: Boolean(row.is_admin),
     active: Boolean(row.active),
+    approvalStatus: (row.approval_status as string) ?? 'approved',
+    createdAt: String(row.created_at ?? ''),
   }));
+}
+
+/**
+ * Clears every operational record (clients, work, documents, finance entries,
+ * messages, attendance, history) while keeping accounts, roles and settings.
+ * Used by the administrator "reset workspace" control.
+ */
+export async function wipeWorkspaceData(): Promise<{ cleared: Record<string, number> }> {
+  const client = db();
+  const zero = '00000000-0000-0000-0000-000000000000';
+  const plan: Array<[string, string]> = [
+    ['journal_entry_lines', 'journal_entry_id'], ['journal_entries', 'id'], ['accounting_periods', 'id'],
+    ['document_extractions', 'id'], ['documents', 'id'], ['task_comments', 'id'], ['tasks', 'id'],
+    ['engagement_members', 'engagement_id'], ['engagements', 'id'],
+    ['quotation_items', 'id'], ['quotations', 'id'], ['reports', 'id'],
+    ['client_contacts', 'id'], ['clients', 'id'],
+    ['activity_logs', 'id'], ['audit_events', 'id'], ['admin_transfers', 'id'], ['attendance_records', 'id'],
+    ['internal_messages', 'id'], ['private_messages', 'id'], ['conversation_participants', 'conversation_id'], ['conversations', 'id'],
+    ['notifications', 'id'], ['ai_actions', 'id'], ['ai_messages', 'id'], ['ai_conversations', 'id'],
+    ['bkm_triage_events', 'id'], ['bkm_triage_drafts', 'id'], ['bkm_triage_cases', 'id'],
+    ['user_permissions', 'user_id'],
+  ];
+  const cleared: Record<string, number> = {};
+  for (const [table, column] of plan) {
+    const { count, error } = await client.from(table).delete({ count: 'exact' }).neq(column, zero);
+    if (error) throw new Error(`Unable to clear ${table}: ${error.message}`);
+    cleared[table] = count ?? 0;
+  }
+  return { cleared };
+}
+
+/** Administrator-controlled account creation (approved immediately). */
+export async function provisionUser(input: { name: string; email: string; roleTitle: string; password?: string; isAdmin?: boolean; permissions?: string[] }): Promise<{ userId: string; tempPassword?: string }> {
+  const client = db();
+  const email = input.email.trim().toLowerCase();
+  const tempPassword = input.password ?? `Bkm-${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
+  const { data: created, error: createError } = await client.auth.admin.createUser({ email, password: tempPassword, email_confirm: true });
+  if (createError || !created.user) throw new Error(/already|exists/i.test(createError?.message ?? '') ? 'An account with this email already exists.' : (createError?.message ?? 'Unable to create the user.'));
+  const userId = created.user.id;
+  const { data: roles } = await client.from('roles').select('id, name').order('name');
+  const role = (roles ?? []).find((item) => item.name.toLowerCase() === input.roleTitle.toLowerCase())
+    ?? (roles ?? []).find((item) => item.name === (input.isAdmin ? 'System Administrator' : 'Team Member'))
+    ?? (roles ?? [])[0];
+  if (!role) throw new Error('No role is configured.');
+  const initials = input.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
+  const { error: profileError } = await client.from('profiles').insert({
+    id: userId, role_id: role.id, full_name: input.name, email, initials,
+    is_admin: Boolean(input.isAdmin), active: true, is_demo: false, approval_status: 'approved', approved_at: new Date().toISOString(),
+  });
+  if (profileError) throw new Error(`User created, but profile creation failed: ${profileError.message}`);
+  const permissions = input.permissions ?? [];
+  if (permissions.length) await client.from('user_permissions').insert(permissions.map((permission_key) => ({ user_id: userId, permission_key }))).then(() => undefined, () => undefined);
+  return { userId, tempPassword: input.password ? undefined : tempPassword };
 }
 
 export async function getInternalMessages(): Promise<InternalMessage[]> {

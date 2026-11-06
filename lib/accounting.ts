@@ -47,8 +47,12 @@ export function validateJournalEntry(entry: JournalEntry, existingReferences: st
  * one implementation of the accounting math.
  */
 export function computeAccountingSnapshot(chart: ChartAccount[], entries: JournalEntry[], options: { periodStart?: string; periodEnd?: string } = {}): AccountingSnapshot {
-  const periodStart = options.periodStart ?? '2026-09-01';
-  const periodEnd = options.periodEnd ?? '2026-09-30';
+  const entryDates = entries.map((entry) => entry.date).sort();
+  const now = new Date();
+  const currentMonthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const periodStart = options.periodStart ?? (entryDates[0] || currentMonthStart);
+  const periodEnd = options.periodEnd ?? (entryDates[entryDates.length - 1] || today);
   const references: string[] = [];
   entries.forEach((entry) => { validateJournalEntry(entry, references, chart); references.push(entry.reference); });
   const selectedEntries = entries.filter((entry) => (entry.status ?? 'Posted') === 'Posted' && entry.date >= periodStart && entry.date <= periodEnd);
@@ -71,7 +75,28 @@ export function computeAccountingSnapshot(chart: ChartAccount[], entries: Journa
   const liabilities = accountBalances.filter((item) => item.type === 'Liability').reduce((sum, item) => sum + item.balance, 0);
   const capital = accountBalances.filter((item) => item.type === 'Equity').reduce((sum, item) => sum + item.balance, 0);
   const netProfit = revenue - expenses;
-  return { metadata: { firmName: 'BenKim Associates', reportTitle: 'Internal financial statements', periodStart, periodEnd, currency: 'KES', basis: 'Deterministic posted double-entry journal', preparedAt: new Date().toISOString() }, accounts: accountBalances, journalEntries: selectedEntries, ledger, trialBalance, trialBalanceTotals: { debit: totalDebit, credit: totalCredit, difference: totalDebit - totalCredit }, incomeStatement: { revenue, expenses, netProfit }, balanceSheet: { assets, liabilities, equity: capital + netProfit, balanced: Math.abs(assets - (liabilities + capital + netProfit)) < 0.01 }, cashFlow: { operating: 250000 - 95000 - 310000, investing: -180000, financing: 1500000, netChange: 1500000 + 250000 - 95000 - 310000 - 180000 } };
+  // Cash-flow classification derived from the posted journal: entries that move
+  // cash or bank accounts are bucketed by their counter accounts — equity and
+  // borrowings are financing, non-current assets are investing, the rest are
+  // operating. The empty journal therefore reports a genuinely empty statement.
+  const cashIds = new Set(chart.filter((account) => account.type === 'Asset' && /cash|bank/i.test(account.name)).map((account) => account.id));
+  const typeOf = new Map(chart.map((account) => [account.id, account.type] as const));
+  const currentAssetPattern = /receivable|prepaid|inventory|debtor|current|suspense|control/i;
+  const borrowingPattern = /loan|borrow|overdraft|note payable|finance/i;
+  let cfOperating = 0; let cfInvesting = 0; let cfFinancing = 0;
+  for (const entry of selectedEntries) {
+    const cashDelta = entry.lines.filter((line) => cashIds.has(line.accountId)).reduce((sum, line) => sum + line.debit - line.credit, 0);
+    if (cashDelta === 0) continue;
+    const counters = entry.lines.filter((line) => !cashIds.has(line.accountId));
+    const names = counters.map((line) => accountBalances.find((item) => item.id === line.accountId)?.name ?? '');
+    const types = counters.map((line) => typeOf.get(line.accountId));
+    let bucket: 'operating' | 'investing' | 'financing' = 'operating';
+    if (types.includes('Equity') || (types.includes('Liability') && names.some((name) => borrowingPattern.test(name)))) bucket = 'financing';
+    else if (types.includes('Asset') && names.some((name) => !currentAssetPattern.test(name))) bucket = 'investing';
+    if (bucket === 'financing') cfFinancing += cashDelta; else if (bucket === 'investing') cfInvesting += cashDelta; else cfOperating += cashDelta;
+  }
+  const derivedCashFlow = { operating: cfOperating, investing: cfInvesting, financing: cfFinancing, netChange: cfOperating + cfInvesting + cfFinancing };
+  return { metadata: { firmName: 'BenKim Associates', reportTitle: 'Internal financial statements', periodStart, periodEnd, currency: 'KES', basis: 'Deterministic posted double-entry journal', preparedAt: new Date().toISOString() }, accounts: accountBalances, journalEntries: selectedEntries, ledger, trialBalance, trialBalanceTotals: { debit: totalDebit, credit: totalCredit, difference: totalDebit - totalCredit }, incomeStatement: { revenue, expenses, netProfit }, balanceSheet: { assets, liabilities, equity: capital + netProfit, balanced: Math.abs(assets - (liabilities + capital + netProfit)) < 0.01 }, cashFlow: derivedCashFlow };
 }
 
 export function getAccountingSnapshot(options: { periodStart?: string; periodEnd?: string } = {}): AccountingSnapshot {

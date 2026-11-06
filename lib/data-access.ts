@@ -165,3 +165,12 @@ export async function listWorkspaceUsers() {
   return (await import('./auth')).listDemoAccounts();
 }
 
+export async function wipeWorkspaceData() {
+  if (useProduction()) return (await import('./supabase-repository')).wipeWorkspaceData();
+  throw new Error('Resetting workspace data is only available against the production repository.');
+}
+
+export async function provisionUser(input: { name: string; email: string; roleTitle: string; password?: string; isAdmin?: boolean; permissions?: string[] }) {
+  if (useProduction()) return (await import('./supabase-repository')).provisionUser(input);
+  throw new Error('Creating sign-in accounts is only available against the production repository.');
+}

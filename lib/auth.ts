@@ -43,6 +43,31 @@ export function provisionDemoUser(input: { name: string; email: string; role: Us
   demoAccounts[unique] = user;
   return user;
 }
+const AUTO_APPROVAL_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * Approval gate for sign-in. Pending accounts are refused until an
+ * administrator approves them; four hours after sign-up they are approved
+ * automatically at the next sign-in attempt.
+ */
+export async function ensureAccountApproved(userId: string): Promise<{ ok: boolean; message?: string }> {
+  if (!isProductionDataMode) return { ok: true };
+  const { createSupabaseAdminClient } = await import('./supabase/admin');
+  const admin = createSupabaseAdminClient();
+  if (!admin) return { ok: false, message: 'Supabase is not configured.' };
+  const { data: profile } = await admin.from('profiles').select('approval_status, created_at').eq('id', userId).maybeSingle();
+  if (!profile) return { ok: false, message: 'Your account is authenticated but has no active BKM profile. Ask an administrator to provision access.' };
+  if (profile.approval_status === 'approved') return { ok: true };
+  if (profile.approval_status === 'rejected') return { ok: false, message: 'This account was declined by an administrator. Contact the administrator for access.' };
+  const elapsed = Date.now() - new Date(profile.created_at).getTime();
+  if (elapsed >= AUTO_APPROVAL_MS) {
+    await admin.from('profiles').update({ approval_status: 'approved', approved_at: new Date().toISOString(), approved_by: null }).eq('id', userId);
+    return { ok: true };
+  }
+  const remainingHours = Math.max(1, Math.ceil((AUTO_APPROVAL_MS - elapsed) / 3600000));
+  return { ok: false, message: `Your account is awaiting administrator approval. Access is granted automatically about ${remainingHours} hour${remainingHours === 1 ? '' : 's'} after sign-up if not reviewed sooner.` };
+}
+
 export async function getDemoSession() {
   const supabase = await createSupabaseServerClient();
   if (supabase) {

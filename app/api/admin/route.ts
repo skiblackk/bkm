@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDemoSession, listDemoAccounts, provisionDemoUser, updateDemoUserPermissions } from '@/lib/auth';
-import { listWorkspaceUsers } from '@/lib/data-access';
+import { listWorkspaceUsers, provisionUser, wipeWorkspaceData } from '@/lib/data-access';
 import { addStaffMember, approveDocument, assignTask, getAccounting, getAttendance, getDocumentIntelligence, getInternalMessages, getSnapshot, removeUser, sendInternalMessage, updateAttendance, getAuditEvents, recordAudit } from '@/lib/data-access';
 import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-webhooks';
 import { getIntegrationStatus } from '@/lib/integrations';
@@ -38,9 +38,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ attendance: await updateAttendance(input.staffId, input.mode, input.note) });
     }
     const admin = await requireAdmin();
+    if (input.action === 'wipe-workspace-data') {
+      const result = await wipeWorkspaceData();
+      await recordAudit({ actorId: admin.account, actorName: admin.name, actorRole: admin.role, action: 'wipe_workspace_data', targetType: 'Workspace', targetId: 'workspace', detail: `Administrator reset the workspace: ${Object.values(result.cleared).reduce((sum, count) => sum + count, 0)} records cleared`, severity: 'security' }).catch(() => undefined);
+      return NextResponse.json({ message: 'Workspace data cleared. Every counter now reads zero.', cleared: result.cleared });
+    }
     if (input.action === 'create-user') {
       const permissions = Array.isArray(input.permissions) ? input.permissions : JSON.parse(input.permissions ?? '[]');
       if (!input.name || !input.email || !input.role || !Array.isArray(permissions)) throw new Error('Name, email, role and permissions are required.');
+      if (isProductionDataMode) {
+        const created = await provisionUser({ name: input.name, email: input.email, roleTitle: input.role, permissions, isAdmin: input.role === 'System Administrator' });
+        await recordAudit({ actorId: admin.account, actorName: admin.name, actorRole: admin.role, action: 'create_user', targetType: 'User', targetId: created.userId, detail: `${input.name} created as ${input.role}`, severity: 'security' });
+        return NextResponse.json({ user: { account: created.userId, name: input.name, email: input.email, role: input.role, isAdmin: input.role === 'System Administrator', permissions, active: true }, tempPassword: created.tempPassword, audit: await getAuditEvents(), message: created.tempPassword ? `Account created. Temporary password: ${created.tempPassword}` : 'Account created.' });
+      }
       const user = provisionDemoUser({ name: input.name, email: input.email, role: input.role, permissions });
       const snapshot = await addStaffMember({ id: user.staffId ?? user.account, name: user.name, initials: user.initials, role: user.role, email: user.email ?? '', activeEngagements: 0, assignedTasks: 0, completedTasks: 0, overdueTasks: 0, availability: 100, color: '#4e6982', permissions: user.permissions });
       await recordAudit({ actorId: admin.account, actorName: admin.name, actorRole: admin.role, action: 'create_user', targetType: 'User', targetId: user.staffId ?? user.account, detail: `${user.name} created as ${user.role} with ${user.permissions.length} permissions`, severity: 'security' });
