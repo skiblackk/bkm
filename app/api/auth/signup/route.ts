@@ -27,12 +27,14 @@ export async function POST(request: Request) {
   const admin = createSupabaseAdminClient();
   if (!admin) return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 503 });
 
-  // The assignable roles are every role except System Administrator — that one
-  // comes only from the bootstrap or an explicit ownership transfer.
-  const { data: roles, error: rolesError } = await admin.from('roles').select('id, name').neq('name', 'System Administrator').order('name');
+  // The assignable roles exclude every privileged template — those come only
+  // from the bootstrap, an administrator assignment or an ownership transfer.
+  const PRIVILEGED_ROLES = new Set(['System Administrator', 'CEO / Managing Partner', 'Managing Partner', 'CEO', 'Administrator']);
+  const { data: roles, error: rolesError } = await admin.from('roles').select('id, name').order('name');
   if (rolesError) return NextResponse.json({ error: 'Unable to load the role list.' }, { status: 503 });
-  const chosen = (roles ?? []).find((role) => role.name.toLowerCase() === roleTitle.toLowerCase());
-  const fallback = (roles ?? []).find((role) => role.name === 'Team Member') ?? (roles ?? [])[0];
+  const assignable = (roles ?? []).filter((role) => !PRIVILEGED_ROLES.has(role.name));
+  const chosen = assignable.find((role) => role.name.toLowerCase() === roleTitle.toLowerCase());
+  const fallback = assignable.find((role) => role.name === 'Team Member') ?? assignable[0];
   const role = chosen ?? fallback;
   if (!role) return NextResponse.json({ error: 'No assignable role is configured.' }, { status: 503 });
 
@@ -57,7 +59,8 @@ export async function POST(request: Request) {
       is_admin: true, active: true, is_demo: false, approval_status: 'approved', approved_at: new Date().toISOString(),
     });
     if (profileError) return NextResponse.json({ error: `Account created, but profile creation failed: ${profileError.message}` }, { status: 500 });
-    await admin.from('audit_events').insert({ actor_id: userId, event_type: 'account.bootstrap', description: `First administrator account established for ${fullName}.`, target_type: 'profile', severity: 'info' }).then(() => undefined, () => undefined);
+    await admin.from('audit_events').insert({ actor_id: userId, actor_name: fullName, actor_role: 'System Administrator', action: 'account.bootstrap', target_type: 'profile', target_id: userId, detail: `First administrator account established for ${fullName}.`, severity: 'info' }).then(() => undefined, () => undefined);
+    await admin.from('activity_logs').insert({ actor_id: userId, actor_name: fullName, event_type: 'account.bootstrap', description: `First administrator account established for ${fullName}.`, record_type: 'profile', record_id: userId }).then(() => undefined, () => undefined);
     return NextResponse.json({ status: 'admin', message: 'Welcome — you are the administrator. Signing you in…' }, { status: 201 });
   }
 
@@ -67,6 +70,7 @@ export async function POST(request: Request) {
   });
   if (profileError) return NextResponse.json({ error: `Account created, but profile creation failed: ${profileError.message}` }, { status: 500 });
   await admin.from('user_permissions').insert(BASELINE_PERMISSIONS.map((permission_key) => ({ user_id: userId, permission_key }))).then(() => undefined, () => undefined);
-  await admin.from('audit_events').insert({ actor_id: userId, event_type: 'account.signup', description: `${fullName} signed up as ${role.name} — awaiting approval.`, target_type: 'profile', severity: 'info' }).then(() => undefined, () => undefined);
+  await admin.from('audit_events').insert({ actor_id: userId, actor_name: fullName, actor_role: role.name, action: 'account.signup', target_type: 'profile', target_id: userId, detail: `${fullName} signed up as ${role.name} — awaiting approval.`, severity: 'info' }).then(() => undefined, () => undefined);
+  await admin.from('activity_logs').insert({ actor_id: userId, actor_name: fullName, event_type: 'account.signup', description: `${fullName} signed up as ${role.name} — awaiting approval.`, record_type: 'profile', record_id: userId }).then(() => undefined, () => undefined);
   return NextResponse.json({ status: 'pending', message: 'Account created. An administrator will review it — or access is granted automatically 4 hours after sign-up.' }, { status: 201 });
 }

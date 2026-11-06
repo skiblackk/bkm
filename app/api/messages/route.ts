@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   try {
     if (conversationId) return NextResponse.json({ ...getPrivateConversation(conversationId, id), staff: await peopleForSession(session) });
     const broadcasts = (await getInternalMessages()).filter((message) => message.recipientId === 'all' && message.senderId !== id).slice(0, 10);
-    return NextResponse.json({ conversations: listPrivateConversations(id), staff: await peopleForSession(session), broadcasts, messages: (await getInternalMessages()).filter((message) => message.senderId === id || message.recipientId === id || (message.recipientId === 'all' && !session.isAdmin)) });
+    return NextResponse.json({ conversations: listPrivateConversations(id), staff: await peopleForSession(session), broadcasts, messages: (await getInternalMessages()).filter((message) => message.senderId === id || message.recipientId === id || message.recipientId === 'all') });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Conversation access denied.' }, { status: 403 }); }
 }
 
