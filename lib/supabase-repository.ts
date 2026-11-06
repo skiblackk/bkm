@@ -285,25 +285,40 @@ export async function listWorkspaceUsers(): Promise<Array<{ account: string; nam
 export async function wipeWorkspaceData(): Promise<{ cleared: Record<string, number> }> {
   const client = db();
   const zero = '00000000-0000-0000-0000-000000000000';
+  // Children before parents wherever a foreign key exists, then repeat passes so any
+  // reference this plan does not know about is cleared on a later sweep instead of
+  // blocking the reset.
   const plan: Array<[string, string]> = [
     ['journal_entry_lines', 'journal_entry_id'], ['journal_entries', 'id'], ['accounting_periods', 'id'],
     ['document_extractions', 'id'], ['documents', 'id'], ['task_comments', 'id'], ['tasks', 'id'],
-    ['engagement_members', 'engagement_id'], ['engagements', 'id'],
-    ['quotation_items', 'id'], ['quotations', 'id'], ['reports', 'id'],
-    ['client_contacts', 'id'], ['clients', 'id'],
+    ['engagement_members', 'engagement_id'], ['reports', 'id'], ['quotation_items', 'id'], ['quotations', 'id'],
+    ['engagements', 'id'], ['client_contacts', 'id'], ['clients', 'id'],
     ['activity_logs', 'id'], ['audit_events', 'id'], ['admin_transfers', 'id'], ['attendance_records', 'id'],
-    ['internal_messages', 'id'], ['private_messages', 'id'], ['conversation_participants', 'conversation_id'], ['conversations', 'id'],
-    ['notifications', 'id'], ['ai_actions', 'id'], ['ai_messages', 'id'], ['ai_conversations', 'id'],
-    ['bkm_triage_events', 'id'], ['bkm_triage_drafts', 'id'], ['bkm_triage_cases', 'id'],
+    ['internal_messages', 'id'], ['private_messages', 'id'], ['conversation_participants', 'conversation_id'],
+    ['conversations', 'id'], ['notifications', 'id'], ['ai_actions', 'id'], ['ai_messages', 'id'],
+    ['ai_conversations', 'id'], ['bkm_triage_events', 'id'], ['bkm_triage_drafts', 'id'], ['bkm_triage_cases', 'id'],
     ['user_permissions', 'user_id'],
   ];
   const cleared: Record<string, number> = {};
-  for (const [table, column] of plan) {
-    const { count, error } = await client.from(table).delete({ count: 'exact' }).neq(column, zero);
-    if (error) throw new Error(`Unable to clear ${table}: ${error.message}`);
-    cleared[table] = count ?? 0;
+  const errors: string[] = [];
+  for (let pass = 0; pass < 4; pass += 1) {
+    errors.length = 0;
+    let remaining = 0;
+    for (const [table, column] of plan) {
+      const already = cleared[table] ?? 0;
+      const { count, error } = await client.from(table).delete({ count: 'exact' }).neq(column, zero);
+      if (error) {
+        errors.push(`${table}: ${error.message}`);
+        remaining += 1;
+        continue;
+      }
+      cleared[table] = already + (count ?? 0);
+      if ((count ?? 0) > 0) remaining += 1;
+    }
+    if (remaining === 0 && errors.length === 0) return { cleared };
+    if (pass === 3) break;
   }
-  return { cleared };
+  throw new Error(`Unable to clear: ${errors.join('; ') || 'rows kept reappearing'}`);
 }
 
 /** Administrator-controlled account creation (approved immediately). */
