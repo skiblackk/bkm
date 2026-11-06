@@ -7,6 +7,7 @@ import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-we
 import { getIntegrationStatus } from '@/lib/integrations';
 import { decideAiTriage, getAiTriageItems } from '@/lib/ai-triage';
 import { getConfiguredDemoDate } from '@/lib/demo-config';
+import { businessDate } from '@/lib/business-clock';
 import { isProductionDataMode, hasSupabaseConfiguration } from '@/lib/runtime-mode';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
@@ -25,15 +26,20 @@ function requireActionPermission(session: DemoSession, ...permissions: string[])
 }
 
 export async function GET() {
+  try {
   if (isProductionDataMode && !hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
   const session = await requireSession();
   requireActionPermission(session, 'view_user_directory', 'view_audit_logs', 'manage_workspace_settings');
   const snapshot = await getSnapshot();
   const attendance = await getAttendance();
-  const todayKey = isProductionDataMode ? new Date().toISOString().slice(0, 10) : getConfiguredDemoDate();
+  const todayKey = isProductionDataMode ? businessDate() : getConfiguredDemoDate();
   const missing = attendance.records.filter((record) => record.date === todayKey && record.status === 'Not Checked In').map((record) => snapshot.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId);
   const communicationAlerts = getCommunicationAlerts();
   return NextResponse.json({ snapshot, attendance, missing, accounting: await getAccounting(), document: await getDocumentIntelligence(), messages: await getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: await listWorkspaceUsers(), audit: await getAuditEvents(), environment: { mode: isProductionDataMode ? 'production' : 'demonstration', today: todayKey } });
+  } catch (error) {
+    const status = error instanceof PermissionError ? error.status : 500;
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'The admin workspace could not be loaded.' }, { status });
+  }
 }
 
 export async function POST(request: Request) {

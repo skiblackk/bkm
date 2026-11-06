@@ -14,14 +14,19 @@ export async function GET() {
     const fullSnapshot = await getSnapshot();
     const canManageClients = hasPermission(session, 'manage_clients');
     const canManageTasks = hasPermission(session, 'manage_tasks');
+    // Whitelist every collection explicitly. A spread here would re-expose
+    // records that the permission checks deliberately emptied.
+    const canSeeDirectory = canManageTasks || session.isAdmin || hasPermission(session, 'view_team_attendance');
     const snapshot = {
-      ...fullSnapshot,
       clients: canManageClients ? fullSnapshot.clients : [],
       engagements: canManageClients ? fullSnapshot.engagements : [],
       quotations: canManageClients ? fullSnapshot.quotations : [],
       tasks: canManageTasks ? fullSnapshot.tasks : fullSnapshot.tasks.filter((task) => task.assignedTo === session.staffId),
-      staff: canManageTasks || session.isAdmin ? fullSnapshot.staff : [],
+      staff: canSeeDirectory ? fullSnapshot.staff : fullSnapshot.staff.filter((member) => member.id === session.staffId),
       activities: canManageClients || canManageTasks ? fullSnapshot.activities : [],
+      reports: hasPermission(session, 'view_reports') || canManageClients ? fullSnapshot.reports : [],
+      documents: hasPermission(session, 'view_documents') ? fullSnapshot.documents : [],
+      environment: fullSnapshot.environment,
     };
     const attendance = await getAttendance();
     const checkIn = session?.staffId ? attendance.records.find((record) => record.staffId === session.staffId && record.date === (isProductionDataMode ? businessDate() : getConfiguredDemoDate())) ?? null : null;

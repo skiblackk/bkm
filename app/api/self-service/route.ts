@@ -3,6 +3,7 @@ import { getDemoSession, hasPermission } from '@/lib/auth';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { recordAudit } from '@/lib/data-access';
 import { isProductionDataMode } from '@/lib/runtime-mode';
+import { isPermissionKey } from '@/lib/permission-catalogue';
 
 function db() {
   const admin = createSupabaseAdminClient();
@@ -55,6 +56,9 @@ export async function POST(request: Request) {
       const permission = String(input.permission ?? '').slice(0, 120);
       const reason = String(input.reason ?? '').slice(0, 1000);
       if (!permission || !reason) return NextResponse.json({ error: 'A permission and a reason are required.' }, { status: 400 });
+      // Reject anything outside the central catalogue: an unknown key can never be
+      // granted, so accepting it would leave a dead request in the approval inbox.
+      if (!isPermissionKey(permission)) return NextResponse.json({ error: 'That permission is not in the approved catalogue.' }, { status: 400 });
       const { data: created, error } = await admin.from('approval_requests').insert({
         request_type: 'access_request', resource_type: 'permission', resource_id: null,
         requested_by: session.account, reason, status: 'Pending', payload: { permission },
