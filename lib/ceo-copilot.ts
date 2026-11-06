@@ -1,4 +1,4 @@
-import { getAccounting, getAttendance, getSnapshot } from './repository';
+import { getAccounting, getAttendance, getSnapshot } from './data-access';
 import { getCommunicationAlerts } from './communication-webhooks';
 import { listContactMessages } from './respond-io';
 import { getAiTriageItems } from './ai-triage';
@@ -21,9 +21,9 @@ function repairJson(raw: string) {
 }
 
 async function buildContext(gmailEmail?: string) {
-  const snapshot = getSnapshot();
-  const accounting = getAccounting();
-  const attendance = getAttendance();
+  const snapshot = await getSnapshot();
+  const accounting = await getAccounting();
+  const attendance = await getAttendance();
   const today = getConfiguredDemoDate();
   const todayAttendance = attendance.records.filter((item) => item.date === today).map(({ id, staffId, date, status, checkIn, checkOut, note }) => ({ id, staffId, date, status, checkIn, checkOut, note }));
   const tasks = snapshot.tasks.map(({ id, title, clientId, engagementId, assignedTo, priority, dueDate, status }) => ({ id, title, clientId, engagementId, assignedTo, priority, dueDate, status }));
