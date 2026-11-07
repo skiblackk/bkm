@@ -157,7 +157,15 @@ export async function executeTool(name: string, args: Record<string, unknown>, s
         const missingPeople = findings.people.filter((p) => p.missingCount > 0).sort((a, b) => b.missingCount - a.missingCount);
         return {
           tool: name, ok: true,
-          summary: `Attendance ${label} (${findings.schedule}): ${findings.totals.late} confirmed late arrivals, ${findings.totals.missing} missing check-in records, ${findings.totals.onLeave} approved-leave days, ${findings.totals.present} present days. Most late: ${latePeople.slice(0, 3).map((p) => `${p.name} (${p.lateCount}x)`).join(', ') || 'none'}. Most missing records: ${missingPeople.slice(0, 3).map((p) => `${p.name} (${p.missingCount}x)`).join(', ') || 'none'}.`,
+          summary: [
+            label,
+            `- Late arrivals: ${findings.totals.late}`,
+            `- Missing check-in records: ${findings.totals.missing}`,
+            `- Approved-leave days: ${findings.totals.onLeave}`,
+            `- Present days: ${findings.totals.present}`,
+            `- Most late: ${latePeople.slice(0, 3).map((p) => `${p.name} (${p.lateCount}x)`).join(', ') || 'none'}`,
+            `- Most missing records: ${missingPeople.slice(0, 3).map((p) => `${p.name} (${p.missingCount}x)`).join(', ') || 'none'}`,
+          ].join('\n'),
           data: findings, scope: `all active employees, ${label}`,
         };
       }

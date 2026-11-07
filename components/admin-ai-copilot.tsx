@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { BrainCircuit, CheckCircle2, History, Loader2, Lock, Plus, Send, Sparkles, Table2, X } from 'lucide-react';
+import AiAnswer from './ai-answer';
 
 type TraceItem = { tool: string; summary: string; denied?: boolean; requiresConfirmation?: boolean; draft?: unknown };
 type Message = { role: 'user' | 'assistant'; content: string; toolTrace?: TraceItem[]; scope?: string[]; followUps?: string[]; engine?: string };
@@ -108,7 +109,7 @@ export default function AdminAiCopilot() {
         ) : (
           <div key={index} className="max-w-4xl rounded-xl border border-line bg-canvas/50 p-4">
             <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.1em] text-teal-700"><Sparkles size={13} /> Copilot {message.engine && <span className="font-normal normal-case tracking-normal text-slate-400">· {message.engine}</span>}</div>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{message.content}</p>
+            <div className="mt-2"><AiAnswer text={message.content} /></div>
             {message.toolTrace?.length ? (
               <div className="mt-3">
                 <div className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400"><Table2 size={11} /> Data used</div>
