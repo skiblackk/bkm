@@ -31,9 +31,13 @@ export async function POST(request: Request) {
       const snapshot = await updateTask(task.id, { status: 'Completed' });
       return NextResponse.json({ answer: `I marked “${task.title}” as Completed in the task register.`, tool: 'complete_task', recordCount: snapshot?.tasks.length ?? 0, source: 'assistant action' });
     }
-    const result = await askCeoCopilot(question);
+    const result = await askCeoCopilot(question, session);
     return NextResponse.json({ ...result, tool: 'live_grounded_copilot', recordCount: result.evidence.length, source: `live model ${result.model}` });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Assistant could not complete the request.' }, { status: 400 });
+    const message = error instanceof Error ? error.message : 'Assistant could not complete the request.';
+    // Configuration and provider failures must be visible, never masked by a
+    // canned answer that looks like a live one.
+    const status = /not configured|HTTP 4|HTTP 5/i.test(message) ? 503 : 400;
+    return NextResponse.json({ error: message, configured: status !== 503 }, { status });
   }
 }

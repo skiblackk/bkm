@@ -14,7 +14,8 @@ export async function POST(request: Request) {
   if (!session.isAdmin) return NextResponse.json({ error: 'The leadership briefing is available to administrators.' }, { status: 403 });
   try {
     const input = schema.parse(await request.json());
-    return NextResponse.json(await askCeoCopilot(input.question, input.history ?? [], 0, input.gmailEmail));
+    const result = await askCeoCopilot(input.question, session, input.history ?? []);
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'The CEO Copilot could not complete the request.' }, { status: 400 });
   }

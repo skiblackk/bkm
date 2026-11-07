@@ -1,8 +1,7 @@
-import { getAccounting, getAttendance, getSnapshot } from './data-access';
-import { getCommunicationAlerts } from './communication-webhooks';
-import { listContactMessages } from './respond-io';
-import { getAiTriageItems } from './ai-triage';
-import { getConfiguredDemoDate, DEMO_PERIOD_LABEL } from './demo-config';
+import { executeTool } from './copilot-tools';
+import { businessDate } from './business-clock';
+import { getAiProvider, resolveModel, chatCompletionsUrl } from './ai-provider';
+import type { DemoSession } from './auth';
 
 export type CopilotResult = { answer: string; evidence: string[]; actions: string[]; needsData: string[]; model: string; live: true };
 
@@ -20,56 +19,65 @@ function repairJson(raw: string) {
   return output;
 }
 
-async function buildContext(gmailEmail?: string) {
-  const snapshot = await getSnapshot();
-  const accounting = await getAccounting();
-  const attendance = await getAttendance();
-  const today = getConfiguredDemoDate();
-  const todayAttendance = attendance.records.filter((item) => item.date === today).map(({ id, staffId, date, status, checkIn, checkOut, note }) => ({ id, staffId, date, status, checkIn, checkOut, note }));
-  const tasks = snapshot.tasks.map(({ id, title, clientId, engagementId, assignedTo, priority, dueDate, status }) => ({ id, title, clientId, engagementId, assignedTo, priority, dueDate, status }));
-  const triage = getAiTriageItems(getCommunicationAlerts()).map(({ id, channel, senderName, subject, message, priority, summary, status, createdAt }) => ({ id, channel, senderName, subject, message, priority, summary, status, createdAt }));
-  let gmailThread: unknown = null;
-  if (gmailEmail?.trim()) {
-    const identifier = gmailEmail.trim().includes(':') ? gmailEmail.trim() : `email:${gmailEmail.trim()}`;
-    const result = await listContactMessages(identifier, 20);
-    gmailThread = result.items.map((item) => ({ messageId: item.messageId, traffic: item.traffic, subject: item.message?.subject, text: item.message?.text, status: item.status }));
+/**
+ * Live context for the assistant.
+ *
+ * This previously shipped the in-memory demonstration store, anchored to a
+ * hardcoded historical demo date and labelled "fictional" in the prompt — so
+ * the model correctly described mock data. It now runs the same
+ * permission-checked tool layer as the management copilot, over real records.
+ */
+async function buildContext(session: DemoSession) {
+  const provider = getAiProvider();
+  if (!provider) throw new Error('The live AI model is not configured on the server, so no answer was generated. Ask an administrator to set GROQ_API_KEY.');
+  const model = await resolveModel(provider);
+  const today = businessDate();
+  const monthStart = `${today.slice(0, 7)}-01`;
+
+  const results: Array<{ tool: string; summary: string; data?: unknown; denied?: boolean; scope?: string }> = [];
+  const wanted: Array<[string, Record<string, unknown>]> = [
+    ['attendance_summary', { from: monthStart, to: today }],
+    ['task_workload', {}],
+    ['pending_approvals', {}],
+    ['employee_directory', {}],
+  ];
+  for (const [name, args] of wanted) {
+    try {
+      results.push(await executeTool(name, args, session));
+    } catch (error) {
+      results.push({ tool: name, summary: `Tool unavailable: ${error instanceof Error ? error.message : 'unknown error'}` });
+    }
   }
   return {
-    demoDate: today,
-    period: DEMO_PERIOD_LABEL,
-    clients: snapshot.clients.map(({ id, name, industry, status }) => ({ id, name, industry, status })),
-    engagements: snapshot.engagements.map(({ id, name, clientId, type, status, progress, deadline, outstandingDocuments }) => ({ id, name, clientId, type, status, progress, deadline, outstandingDocuments })),
-    attendance: todayAttendance,
-    tasks,
-    accounting: { incomeStatement: accounting.incomeStatement, balanceSheet: accounting.balanceSheet, cashFlow: accounting.cashFlow, trialBalance: accounting.trialBalance },
-    messageTriage: triage,
-    gmailThread,
+    today,
+    model,
+    // Only successfully authorised tool output is passed to the model.
+    tools: results.map((result) => ({ tool: result.tool, summary: result.summary, data: result.data, denied: result.denied, scope: result.scope })),
   };
 }
 
-export async function askCeoCopilot(question: string, history: Array<{ role: 'user' | 'assistant'; content: string }> = [], attempt = 0, gmailEmail?: string): Promise<CopilotResult> {
-  const baseUrl = process.env.BUILT_IN_FORGE_API_URL || process.env.OPENAI_API_BASE;
-  const apiKey = process.env.BUILT_IN_FORGE_API_KEY || process.env.OPENAI_API_KEY;
-  const model = process.env.AI_MODEL || 'gpt-5-mini';
-  if (!baseUrl || !apiKey) throw new Error('The live AI model is not configured in the server secret store.');
-  const context = await buildContext(gmailEmail);
-  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/chat/completions`, {
+export async function askCeoCopilot(question: string, session: DemoSession, history: Array<{ role: 'user' | 'assistant'; content: string }> = [], attempt = 0): Promise<CopilotResult> {
+  const context = await buildContext(session);
+  const provider = getAiProvider()!;
+  const { baseUrl, apiKey } = provider;
+  const model = context.model;
+  const response = await fetch(chatCompletionsUrl(baseUrl), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model,
       max_completion_tokens: 1800,
       messages: [
-        { role: 'system', content: 'You are BKM CEO Copilot, a thoughtful senior co-worker for Benjamin Mutua, CEO of BenKim Associates in Kenya. You are not a canned FAQ bot. Reason over the supplied live BKM records, answer the exact question, show calculations when relevant, and say clearly when the records are insufficient. Never invent clients, people, balances, tax rates, messages, or completed actions. You may recommend actions but must not claim to have sent messages, changed accounting, approved documents, or created tasks unless the application explicitly reports that action. The records are a fictional demonstration dataset and the configured demo date is historical. Return JSON only with a concise answer, 2-5 evidence items naming the supporting records or calculations, recommended actions, and any missing data needed. Keep the answer executive-readable.', },
-        { role: 'user', content: `BKM records:\n${JSON.stringify(context)}\n\nConversation context:\n${history.slice(-8).map((item) => `${item.role}: ${item.content}`).join('\n')}\n\nBenjamin's question: ${question}` },
+        { role: 'system', content: `You are the BKM work assistant for ${session.name} (${session.role}) at BenKim Associates, an audit and advisory firm in Nairobi, Kenya. Today is ${context.today} in Africa/Nairobi. All figures come from the company's live operational records, retrieved through permission-checked tools run on this request. Answer only from that tool output. Never invent people, dates, balances or actions. If a tool reports a permission denial, say the user lacks that permission rather than guessing. If a tool returned no data, say so plainly and name what is missing. Show the dates and figures you used so the answer is checkable. You may recommend actions but must never claim to have sent a message, posted a journal, approved a document or created a task unless the application reported that it happened. Return JSON only with a concise answer, 2-5 evidence items naming the records or calculations behind it, recommended actions, and any missing data.` },
+        { role: 'user', content: `Live records retrieved for this question:\n${JSON.stringify(context.tools)}\n\nConversation context:\n${history.slice(-8).map((item) => `${item.role}: ${item.content}`).join('\n')}\n\nQuestion: ${question}` },
       ],
       response_format: { type: 'json_schema', json_schema: { name: 'ceo_copilot_response', strict: true, schema: { type: 'object', properties: { answer: { type: 'string' }, evidence: { type: 'array', items: { type: 'string' } }, actions: { type: 'array', items: { type: 'string' } }, needsData: { type: 'array', items: { type: 'string' } } }, required: ['answer', 'evidence', 'actions', 'needsData'], additionalProperties: false } } },
     }),
   });
-  if (!response.ok) throw new Error(`The live AI model returned HTTP ${response.status}.`);
+  if (!response.ok) { const detail = await response.text().catch(() => ''); throw new Error(`The live AI model (${model} via ${provider.provider}) returned HTTP ${response.status}. ${detail.slice(0, 200)}`); }
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const raw = payload.choices?.[0]?.message?.content?.trim();
-  if (!raw && attempt < 1) return askCeoCopilot(question, history, attempt + 1, gmailEmail);
+  if (!raw && attempt < 1) return askCeoCopilot(question, session, history, attempt + 1);
   if (!raw) throw new Error('The live AI model returned an empty response after retrying.');
   const normalized = raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
   let parsed: Omit<CopilotResult, 'model' | 'live'>;

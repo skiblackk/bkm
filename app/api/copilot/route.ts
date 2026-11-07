@@ -3,6 +3,7 @@ import { businessDate } from '@/lib/business-clock';
 import { getDemoSession, hasPermission, type DemoSession } from '@/lib/auth';
 import { executeTool, TOOL_SPECS, resolvePeriod } from '@/lib/copilot-tools';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { getAiProvider, resolveModel, aiStatus, chatCompletionsUrl } from '@/lib/ai-provider';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,7 @@ function db() {
 export interface CopilotAnswer {
   answer: string;
   engine: 'llm-tool-calling' | 'tool-router';
+  engineError?: string | null;
   toolTrace: Array<{ tool: string; summary: string; denied?: boolean; requiresConfirmation?: boolean; draft?: unknown }>;
   scope: string[];
   followUps: string[];
@@ -160,19 +162,24 @@ function finalize(sentences: string[], trace: CopilotAnswer['toolTrace'], scope:
 }
 
 async function llmAnswer(question: string, session: DemoSession, history: Array<{ role: string; content: string }>): Promise<CopilotAnswer | null> {
-  const baseUrl = process.env.BUILT_IN_FORGE_API_URL || process.env.OPENAI_API_BASE;
-  const apiKey = process.env.BUILT_IN_FORGE_API_KEY || process.env.OPENAI_API_KEY;
-  const model = process.env.AI_MODEL || 'gpt-5-mini';
-  if (!baseUrl || !apiKey) return null;
+  const provider = getAiProvider();
+  if (!provider) return null;
+  const { baseUrl, apiKey } = provider;
+  const model = await resolveModel(provider);
   const messages: Array<Record<string, unknown>> = [
-    { role: 'system', content: `You are the BKM Management Copilot for ${session.name}. Answer from the approved tools only — never invent people, attendance, tasks or figures. When a tool reports a denial, explain that the user lacks permission instead of guessing. Dates use Africa/Nairobi. Distinguish confirmed facts from possible explanations. Consequential actions come back as drafts requiring confirmation.` },
-    ...history.slice(-8).map((item) => ({ role: item.role, content: item.content })),
+    { role: 'system', content: `You are the BKM Management Copilot for ${session.name} (${session.role}). Today is ${businessDate()} in Africa/Nairobi — use that year. Answer from the approved tools only; never invent people, attendance, tasks or figures. Quote the exact dates a tool returned rather than restating them. When a tool reports a denial, explain that the user lacks permission instead of guessing. Distinguish confirmed facts from possible explanations. Consequential actions come back as drafts requiring confirmation.` },
+    // Keep history small and plain: only real user/assistant text, no empty
+    // entries and no oversized markdown tables, which the provider rejects.
+    ...history
+      .filter((item) => (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string' && item.content.trim().length > 0)
+      .slice(-6)
+      .map((item) => ({ role: item.role, content: item.content.slice(0, 2000) })),
     { role: 'user', content: question },
   ];
   const trace: CopilotAnswer['toolTrace'] = [];
   const scope: string[] = [];
-  for (let round = 0; round < 4; round += 1) {
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/chat/completions`, {
+  for (let round = 0; round < 6; round += 1) {
+    const response = await fetch(chatCompletionsUrl(baseUrl), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages, tools: TOOL_SPECS.map((spec) => ({ type: 'function', function: spec })), tool_choice: round === 0 ? 'auto' : 'auto' }),
@@ -194,12 +201,30 @@ async function llmAnswer(question: string, session: DemoSession, history: Array<
       messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify({ summary: result.summary, data: result.data, denied: result.denied, requiresConfirmation: result.requiresConfirmation, draft: result.draft }) });
     }
   }
-  return { answer: 'The conversation reached the tool-call limit before a final answer. Narrow the question and try again.', engine: 'llm-tool-calling', toolTrace: trace, scope: Array.from(new Set(scope)), followUps: [], conversationId: null };
+  // Out of rounds: force a final answer from the evidence already gathered
+  // instead of returning a dead end.
+  try {
+    const finalMessages = [...messages, { role: 'user', content: 'Give your final answer now using only the tool results above. Do not call more tools.' }];
+    const response = await fetch(chatCompletionsUrl(baseUrl), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, messages: finalMessages }),
+    });
+    if (response.ok) {
+      const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+      const content = payload.choices?.[0]?.message?.content?.trim();
+      if (content) return { answer: content, engine: 'llm-tool-calling', toolTrace: trace, scope: Array.from(new Set(scope)), followUps: [], conversationId: null };
+    }
+  } catch { /* fall through to the explicit message below */ }
+  return { answer: 'I gathered the records but could not compose a final answer. Narrow the question and try again.', engine: 'llm-tool-calling', toolTrace: trace, scope: Array.from(new Set(scope)), followUps: [], conversationId: null };
 }
 
 export async function GET(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
+  // Lets the panel state plainly whether answers come from a live model or the
+  // deterministic router, instead of implying generative answers either way.
+  const status = aiStatus();
   const conversationId = new URL(request.url).searchParams.get('conversationId');
   const admin = db();
   if (conversationId) {
@@ -207,7 +232,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ messages: messages ?? [] });
   }
   const { data: conversations } = await admin.from('ai_conversations').select('id, title, created_at').eq('profile_id', session.account).order('created_at', { ascending: false }).limit(20);
-  return NextResponse.json({ conversations: conversations ?? [] });
+  return NextResponse.json({ conversations: conversations ?? [], ai: status });
 }
 
 export async function POST(request: Request) {
@@ -233,12 +258,25 @@ export async function POST(request: Request) {
     }
 
     let answer: CopilotAnswer | null = null;
+    let engineError: string | null = null;
     try {
       answer = await llmAnswer(question, session, history);
-    } catch {
+    } catch (error) {
+      // Never swallow this: a silent fallback is how a deterministic router
+      // gets mistaken for a live model. Log it and report it to the caller.
+      engineError = error instanceof Error ? error.message : String(error);
+      console.error('[copilot] live model failed:', engineError);
       answer = null;
     }
-    if (!answer) answer = await routeQuestion(question, session, history.map((h) => h.content));
+    if (!answer) {
+      answer = await routeQuestion(question, session, history.map((h) => h.content));
+      if (engineError) {
+        answer.engineError = engineError;
+        answer.answer = `[Live model unavailable — this answer came from the deterministic record reader, not the AI model.] ${engineError}
+
+${answer.answer}`;
+      }
+    }
     answer.conversationId = conversationId;
 
     if (conversationId) {
