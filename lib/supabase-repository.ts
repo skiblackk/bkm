@@ -461,7 +461,26 @@ export async function reverseJournalEntry(reference: string) {
 }
 
 function extractionFromRow(data: { id: string; filename: string; status: string; summary: string; extracted_json: unknown }): DocumentExtraction {
-  return { id: String(data.id), filename: String(data.filename), status: data.status as DocumentExtraction['status'], summary: String(data.summary), ...(data.extracted_json as object) } as DocumentExtraction;
+  const json = (data.extracted_json ?? {}) as Partial<DocumentExtraction> & { warnings?: string[] };
+  // Build the record field by field. Spreading the stored JSON would leave
+  // fields absent that the finance panel reads, and would ship the full
+  // extracted text and grid to the browser on every admin load.
+  const transactions = Array.isArray(json.transactions) ? json.transactions : [];
+  const unusualItems = Array.isArray(json.unusualItems) && json.unusualItems.length
+    ? json.unusualItems
+    : Array.isArray(json.warnings) ? json.warnings : [];
+  const totalDebits = typeof json.totalDebits === 'number' ? json.totalDebits : 0;
+  const totalCredits = typeof json.totalCredits === 'number' ? json.totalCredits : 0;
+  return {
+    id: String(data.id),
+    filename: String(data.filename),
+    status: data.status as DocumentExtraction['status'],
+    summary: String(data.summary ?? ''),
+    transactions,
+    totalDebits,
+    totalCredits,
+    unusualItems,
+  };
 }
 
 export async function getDocumentIntelligence(): Promise<DocumentExtraction> {
@@ -474,9 +493,14 @@ export async function getDocumentIntelligence(): Promise<DocumentExtraction> {
 
 export async function approveDocument() {
   const client = db();
-  const { data, error } = await client.from('document_extractions').update({ status: 'Approved', approved_at: new Date().toISOString() }).eq('status', 'Needs Review').select('id, filename, status, summary, extracted_json').order('created_at', { ascending: false }).limit(1).maybeSingle();
+  // Uploads are stored with the scanner's own statuses ('AI analyzed', 'Extracted for review'),
+  // so approval must match anything that is not already approved rather than one exact string.
+  // The row is resolved first because PostgREST rejects order/limit modifiers on an UPDATE.
+  const { data: pending, error: findError } = await client.from('document_extractions').select('id').neq('status', 'Approved').order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (findError) throw new Error(findError.message);
+  if (!pending) throw new Error('No document extraction is awaiting review.');
+  const { data, error } = await client.from('document_extractions').update({ status: 'Approved', approved_at: new Date().toISOString() }).eq('id', pending.id).select('id, filename, status, summary, extracted_json').single();
   if (error) throw new Error(error.message);
-  if (!data) throw new Error('No document extraction is awaiting review.');
   return extractionFromRow(data as never);
 }
 

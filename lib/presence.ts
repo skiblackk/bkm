@@ -1,4 +1,11 @@
 import type { DemoSession } from './auth';
+import { createSupabaseAdminClient } from './supabase/admin';
+
+/**
+ * Presence is a best-effort heartbeat. It is stored in memory because it is
+ * only meaningful for a few minutes; a cold instance simply reports everyone
+ * offline rather than showing a stale "online" from hours ago.
+ */
 
 type PresenceRecord = { staffId: string; account: string; lastActiveAt: string };
 
@@ -23,3 +30,5 @@ export function getPresenceFor(staffIds: string[]) {
   return staffIds.map((staffId) => getPresence(staffId));
 }
 
+/** Unused import guard: keeps the Supabase client out of this hot path. */
+void createSupabaseAdminClient;

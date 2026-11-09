@@ -7,7 +7,6 @@ import { getPresence } from '@/lib/presence';
 function participantId(session: Awaited<ReturnType<typeof getDemoSession>>) { return session?.staffId ?? session?.account ?? ''; }
 async function peopleForSession(session: NonNullable<Awaited<ReturnType<typeof getDemoSession>>>) {
   const staff = (await getSnapshot()).staff.map((member) => ({ id: member.id, name: member.name, role: member.role, presence: getPresence(member.id) }));
-  if (!session.isAdmin) staff.push({ id: 'benjamin', name: 'Benjamin Mutua', role: 'System Administrator', presence: getPresence('benjamin') });
   return staff.filter((member, index, all) => all.findIndex((item) => item.id === member.id) === index && member.id !== participantId(session));
 }
 
@@ -18,9 +17,9 @@ export async function GET(request: Request) {
   const id = participantId(session);
   const conversationId = new URL(request.url).searchParams.get('conversationId');
   try {
-    if (conversationId) return NextResponse.json({ ...getPrivateConversation(conversationId, id), staff: await peopleForSession(session) });
+    if (conversationId) return NextResponse.json({ ...(await getPrivateConversation(conversationId, id)), staff: await peopleForSession(session) });
     const broadcasts = (await getInternalMessages()).filter((message) => message.recipientId === 'all' && message.senderId !== id).slice(0, 10);
-    return NextResponse.json({ conversations: listPrivateConversations(id), staff: await peopleForSession(session), broadcasts, messages: (await getInternalMessages()).filter((message) => message.senderId === id || message.recipientId === id || message.recipientId === 'all') });
+    return NextResponse.json({ conversations: await listPrivateConversations(id), staff: await peopleForSession(session), broadcasts, messages: (await getInternalMessages()).filter((message) => message.senderId === id || message.recipientId === id || message.recipientId === 'all') });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Conversation access denied.' }, { status: 403 }); }
 }
 
@@ -38,7 +37,7 @@ export async function POST(request: Request) {
     }
     const recipient = (await peopleForSession(session)).find((member) => member.id === input.recipientId);
     if (!recipient) return NextResponse.json({ error: 'Choose an authorized staff member.' }, { status: 400 });
-    const message = sendPrivateMessage({ senderId, senderName: session.name, recipientId: recipient.id, recipientName: recipient.name, body: input.body ?? '', clientMessageId: input.clientMessageId });
+    const message = await sendPrivateMessage({ senderId, senderName: session.name, recipientId: recipient.id, recipientName: recipient.name, body: input.body ?? '', clientMessageId: input.clientMessageId });
     return NextResponse.json({ message, kind: 'private' }, { status: 201 });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Message could not be sent.' }, { status: 400 }); }
 }
@@ -50,6 +49,6 @@ export async function PATCH(request: Request) {
   try {
     const input = await request.json() as { conversationId?: string };
     if (!input.conversationId) return NextResponse.json({ error: 'A conversation is required.' }, { status: 400 });
-    return NextResponse.json(markConversationRead(input.conversationId, participantId(session)));
+    return NextResponse.json(await markConversationRead(input.conversationId, participantId(session)));
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Conversation could not be marked as read.' }, { status: 403 }); }
 }

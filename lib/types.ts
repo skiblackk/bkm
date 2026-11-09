@@ -151,6 +151,8 @@ export interface PrivateConversation {
   participantIds: string[];
   participantNames: Record<string, string>;
   createdAt: string;
+  latestMessage?: PrivateMessage | null;
+  unreadCount?: number;
 }
 
 export interface PrivateMessage {
