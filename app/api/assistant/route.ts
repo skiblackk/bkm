@@ -4,8 +4,13 @@ import { z } from 'zod';
 import { hasPermission, requirePermission } from '@/lib/auth';
 import { askCeoCopilot } from '@/lib/ceo-copilot';
 import { hasSupabaseConfiguration } from '@/lib/runtime-mode';
+import { getUploadedDocument } from '@/lib/uploaded-documents';
+import { answerDocumentQuestion } from '@/lib/document-analysis';
 
-const schema = z.object({ question: z.string().min(2).max(2000) });
+const schema = z.object({
+  question: z.string().min(2).max(2000),
+  documentId: z.string().min(1).max(64).optional(),
+});
 
 async function findRequestedTask(question: string) {
   const lower = question.toLowerCase();
@@ -16,8 +21,26 @@ export async function POST(request: Request) {
   try {
     if (!hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
     const session = await requirePermission('use_assistant');
-    const { question } = schema.parse(await request.json());
+    const { question, documentId } = schema.parse(await request.json());
     const lower = question.toLowerCase();
+
+    // A question about an uploaded file is answered from that file, not from
+    // company records. The figures are computed server-side.
+    if (documentId) {
+      const document = await getUploadedDocument(documentId, session.account);
+      if (!document) return NextResponse.json({ error: 'That document is no longer available. Upload it again and ask in the same conversation.' }, { status: 404 });
+      const result = await answerDocumentQuestion({ filename: document.filename, text: document.extractedText, grid: document.grid, warnings: document.warnings }, question);
+      return NextResponse.json({
+        answer: result.answer,
+        tool: 'document_analysis',
+        recordCount: result.analysis.ledger.length,
+        evidence: result.analysis.warnings.slice(0, 3),
+        model: result.model,
+        computed: result.computed,
+        analysis: { kind: result.analysis.kind, currency: result.analysis.currency, totals: result.analysis.statements.totals, statements: result.analysis.statements, diagnostics: result.analysis.diagnostics },
+        source: `uploaded document ${document.filename}`,
+      });
+    }
     if (/(create|add|make|open)\s+(a\s+)?task/.test(lower)) {
       if (!hasPermission(session, 'manage_tasks')) throw new Error('Task-management permission is required for assistant task creation.');
       const title = question.replace(/.*?(?:create|add|make|open)\s+(?:a\s+)?task\s*(?:to|for|called|named)?\s*/i, '').trim().replace(/[.?!]+$/, '') || 'Follow up on requested work';

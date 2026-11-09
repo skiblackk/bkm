@@ -18,6 +18,7 @@ type Block =
   | { kind: 'bullets'; items: string[] }
   | { kind: 'ordered'; items: string[] }
   | { kind: 'table'; head: string[]; rows: string[][] }
+  | { kind: 'statement'; title: string; rows: Array<{ label: string; value: string }>; total?: { label: string; value: string } }
   | { kind: 'para'; text: string };
 
 const HEADING = /^\s{0,3}(#{1,6})\s+(.*)$/;
@@ -134,6 +135,16 @@ function parse(text: string): Block[] {
       continue;
     }
 
+    // A short line that ends in a colon is a section label ("Assets:"),
+    // which reads far better as a heading than as a paragraph.
+    const sectionLabel = line.match(/^\s*([A-Za-z][A-Za-z0-9 &/'’()-]{1,40}):\s*$/);
+    if (sectionLabel) {
+      flushBuffer();
+      blocks.push({ kind: 'heading', text: sectionLabel[1].trim() });
+      i += 0;
+      continue;
+    }
+
     const metric = isMetricLine(line);
     if (metric) {
       flushBuffer();
@@ -157,7 +168,56 @@ function parse(text: string): Block[] {
     buffer.push(stripBold(line));
   }
   flushBuffer();
-  return blocks;
+  return buildStatements(blocks);
+}
+
+const MONEY_VALUE = /^(?:[A-Z]{3}\s*)?-?\(?[\d,]+(?:\.\d{1,2})?\)?$/;
+
+/** "- Cash and bank: KES 1,820,000.00" -> a labelled amount. */
+function asStatementRow(item: string): { label: string; value: string } | null {
+  const match = item.match(/^(.{2,70}?)\s*:\s*((?:[A-Z]{3}\s*)?-?\(?[\d,]+(?:\.\d{1,2})?\)?)$/);
+  if (!match) return null;
+  const label = stripBold(match[1]).trim();
+  const value = stripBold(match[2]).trim();
+  if (!label || !MONEY_VALUE.test(value)) return null;
+  return { label, value };
+}
+
+/** "Total assets: KES 3,270,000.00" -> the closing line of a statement. */
+function asTotalLine(text: string): { label: string; value: string } | null {
+  const match = text.match(/^\s*(Total[^:]{0,48}|Net [^:]{0,40}|Balance check|Closing balance|Opening balance)\s*:\s*((?:[A-Z]{3}\s*)?-?\(?[\d,]+(?:\.\d{1,2})?\)?)\s*$/i);
+  if (!match) return null;
+  return { label: match[1].trim(), value: match[2].trim() };
+}
+
+/**
+ * Financial statements arrive as a heading, a run of "label: amount" lines and
+ * a closing total. Rendering them as a statement (label left, amount right,
+ * rule above the total) reads far better than a stack of tiles.
+ */
+function buildStatements(blocks: Block[]): Block[] {
+  const output: Block[] = [];
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i];
+    const next = blocks[i + 1];
+    if (block.kind === 'heading' && next && next.kind === 'bullets') {
+      const rows = next.items.map(asStatementRow);
+      const numeric = rows.filter(Boolean).length;
+      if (numeric >= Math.max(2, Math.ceil(next.items.length * 0.6))) {
+        let total: { label: string; value: string } | undefined;
+        const after = blocks[i + 2];
+        if (after) {
+          const candidate = after.kind === 'para' ? asTotalLine(after.text) : after.kind === 'metrics' && after.items.length === 1 ? asTotalLine(`${after.items[0].label}: ${after.items[0].value}`) : null;
+          if (candidate) { total = candidate; i += 1; }
+        }
+        output.push({ kind: 'statement', title: block.text, rows: rows.filter((row): row is { label: string; value: string } => row !== null), total });
+        i += 1;
+        continue;
+      }
+    }
+    output.push(block);
+  }
+  return output;
 }
 
 function toneFor(label: string, value: string): string {
@@ -234,22 +294,49 @@ export default function AiAnswer({ text, compact = false }: { text: string; comp
             </ol>
           );
         }
+        if (block.kind === 'statement') {
+          return (
+            <div key={key} className="overflow-hidden rounded-lg border border-line">
+              <div className="flex items-center gap-2 border-b border-line bg-canvas px-3 py-2">
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />
+                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-navy">{block.title}</span>
+              </div>
+              <div className="divide-y divide-line/60">
+                {block.rows.map((row, r) => (
+                  <div key={`${key}-r${r}`} className="flex items-baseline justify-between gap-4 bg-white px-3 py-[7px]">
+                    <span className="min-w-0 text-[12px] leading-5 text-slate-600">{inline(row.label, `${key}-l${r}`)}</span>
+                    <span className={`shrink-0 tabular text-[12px] font-semibold ${/^\(|^-/.test(row.value) ? 'text-red-700' : 'text-navy'}`}>{row.value}</span>
+                  </div>
+                ))}
+              </div>
+              {block.total && (
+                <div className="flex items-baseline justify-between gap-4 border-t-2 border-navy/80 bg-canvas px-3 py-2.5">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-navy">{block.total.label}</span>
+                  <span className={`shrink-0 tabular text-[13px] font-bold ${/^\(|^-/.test(block.total.value) ? 'text-red-700' : 'text-navy'}`}>{block.total.value}</span>
+                </div>
+              )}
+            </div>
+          );
+        }
         if (block.kind === 'table') {
+          // A money column is right-aligned and tabular; a text column is not.
+          const moneyColumn = block.head.map((head, i) => i > 0 && /(amount|debit|credit|balance|total|value|kes|usd)/i.test(head))
+            .map((isMoney, i) => isMoney || block.rows.every((row) => !row[i] || /^[\s(—-]*(?:[A-Z]{3}\s*)?-?[\d,]+(?:\.\d{1,2})?\)?$/i.test(row[i])));
           return (
             <div key={key} className="overflow-hidden rounded-lg border border-line">
               <table className="w-full border-collapse text-left">
                 <thead className="bg-canvas">
                   <tr>
                     {block.head.map((cell, i) => (
-                      <th key={`${key}-h${i}`} className={`px-3 py-2 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500 ${i > 0 ? 'text-right' : ''}`}>{cell}</th>
+                      <th key={`${key}-h${i}`} className={`px-3 py-2 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500 ${moneyColumn[i] ? 'text-right' : ''}`}>{cell}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line/70">
                   {block.rows.map((row, r) => (
-                    <tr key={`${key}-r${r}`} className="bg-white">
+                    <tr key={`${key}-r${r}`} className={`bg-white ${/^total|^net |^closing|^balance (c\/f|carried)/i.test(row[0] ?? '') ? 'bg-canvas/60 font-semibold' : ''}`}>
                       {row.map((cell, c) => (
-                        <td key={`${key}-r${r}c${c}`} className={`px-3 py-2 text-[12px] text-slate-700 ${c > 0 ? 'text-right tabular font-semibold text-navy' : 'font-medium'}`}>{inline(cell, `${key}-${r}-${c}`)}</td>
+                        <td key={`${key}-r${r}c${c}`} className={`px-3 py-2 text-[12px] text-slate-700 ${moneyColumn[c] ? 'text-right tabular font-semibold text-navy' : 'font-medium'}`}>{inline(cell, `${key}-${r}-${c}`)}</td>
                       ))}
                     </tr>
                   ))}
