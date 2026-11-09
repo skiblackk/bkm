@@ -6,13 +6,13 @@ export interface AssistantData {
   snapshot: DemoSnapshot;
   attendance: { settings: { expectedCheckIn: string; graceMinutes: number; workingDays: string[] }; records: AttendanceRecord[] };
   accounting: AccountingSnapshot;
-  demoDate: string;
+  businessDay: string;
   metrics: DashboardMetrics;
 }
 
 /**
  * Deterministic workspace search used by the assistant's tool layer. Pure over
- * the provided records so the demonstration store and the Supabase repository
+ * the provided records so the data-access layer and the Supabase repository
  * produce identical answers from identical data.
  */
 export function searchWorkspaceForAssistant(question: string, data: AssistantData) {
@@ -21,7 +21,7 @@ export function searchWorkspaceForAssistant(question: string, data: AssistantDat
   const attendanceData = data.attendance;
   if (lower.includes('check in') || lower.includes('checked in') || lower.includes('late') || lower.includes('attendance')) {
     const targetStatus = lower.includes('late') ? 'Late' : 'Not Checked In';
-    const names = attendanceData.records.filter((record) => record.date === data.demoDate && record.status === targetStatus).map((record) => ({ ...record, name: store.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId }));
+    const names = attendanceData.records.filter((record) => record.date === data.businessDay && record.status === targetStatus).map((record) => ({ ...record, name: store.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId }));
     return { tool: lower.includes('late') ? 'get_late_staff' : 'get_attendance_status', records: names };
   }
   if (lower.includes('trial balance') || lower.includes('balance sheet') || lower.includes('income statement') || lower.includes('ledger') || lower.includes('financial position')) return { tool: 'get_trial_balance', records: [data.accounting] };
@@ -53,10 +53,10 @@ export function formatWorkspaceAssistantAnswer(question: string, result: Assista
       ? `Balance sheet — deterministic accounting engine\n\n${lines}\nCurrent-period profit: ${accounting.incomeStatement.netProfit.toLocaleString('en-KE')} KES\n\nTotal assets: ${accounting.balanceSheet.assets.toLocaleString('en-KE')} KES\nLiabilities: ${accounting.balanceSheet.liabilities.toLocaleString('en-KE')} KES\nEquity including current-period profit: ${accounting.balanceSheet.equity.toLocaleString('en-KE')} KES\n\nCheck: assets ${accounting.balanceSheet.balanced ? 'equal' : 'do not equal'} liabilities plus equity.`
       : `The deterministic accounting engine reports revenue of ${accounting.incomeStatement.revenue.toLocaleString('en-KE')} KES, expenses of ${accounting.incomeStatement.expenses.toLocaleString('en-KE')} KES and net profit of ${accounting.incomeStatement.netProfit.toLocaleString('en-KE')} KES. The balance sheet is ${accounting.balanceSheet.balanced ? 'balanced' : 'out of balance'} with assets of ${accounting.balanceSheet.assets.toLocaleString('en-KE')} KES.`;
   }
-  if (result.tool === 'get_management_overview') return `The firm has ${store.clients.filter((client) => client.status === 'Active').length} active clients, ${store.engagements.length} active engagements, ${data.metrics.overdueTasks} overdue tasks, ${data.attendance.records.filter((record) => record.date === data.demoDate && record.status === 'Not Checked In').length} named staff members not checked in, and a deterministic accounting net profit of ${data.accounting.incomeStatement.netProfit.toLocaleString('en-KE')} KES in the fictional period.`;
+  if (result.tool === 'get_management_overview') return `The firm has ${store.clients.filter((client) => client.status === 'Active').length} active clients, ${store.engagements.length} active engagements, ${data.metrics.overdueTasks} overdue tasks, ${data.attendance.records.filter((record) => record.date === data.businessDay && record.status === 'Not Checked In').length} named staff members not checked in, and a posted net profit of ${data.accounting.incomeStatement.netProfit.toLocaleString('en-KE')} KES for the reporting period.`;
   if (result.tool === 'get_overdue_tasks') {
     const tasks = result.records as typeof store.tasks;
-    return tasks.length ? `I found ${tasks.length} overdue items requiring attention:\n\n${tasks.slice(0, 5).map((task, index) => `${index + 1}. ${task.title} — due ${task.dueDate}; ${store.clients.find((client) => client.id === task.clientId)?.name ?? 'Client'} (${task.priority} priority)`).join('\n')}` : 'No overdue tasks are currently recorded in the demonstration environment.';
+    return tasks.length ? `I found ${tasks.length} overdue items requiring attention:\n\n${tasks.slice(0, 5).map((task, index) => `${index + 1}. ${task.title} — due ${task.dueDate}; ${store.clients.find((client) => client.id === task.clientId)?.name ?? 'Client'} (${task.priority} priority)`).join('\n')}` : 'No overdue tasks are currently recorded in the workspace.';
   }
   if (result.tool === 'get_upcoming_deadlines') {
     const engagements = result.records as typeof store.engagements;
@@ -69,12 +69,12 @@ export function formatWorkspaceAssistantAnswer(question: string, result: Assista
   }
   if (result.tool === 'search_engagements') {
     const engagements = result.records as typeof store.engagements;
-    return `There are ${engagements.length} active engagements in the demonstration environment. The most advanced is ${engagements.sort((a, b) => b.progress - a.progress)[0]?.name} at ${engagements.sort((a, b) => b.progress - a.progress)[0]?.progress}% progress.`;
+    return `There are ${engagements.length} active engagements. The most advanced is ${engagements.sort((a, b) => b.progress - a.progress)[0]?.name} at ${engagements.sort((a, b) => b.progress - a.progress)[0]?.progress}% progress.`;
   }
   if (result.tool === 'get_client') {
     const client = result.records[0] as typeof store.clients[number];
     const engagement = store.engagements.find((item) => item.clientId === client.id);
-    return `${client.name} is an ${client.status.toLowerCase()} demonstration client in ${client.industry}. Current engagement: ${engagement?.name ?? 'None'}, ${engagement?.progress ?? 0}% progress, deadline ${engagement?.deadline ?? 'not set'}. There are ${client.outstandingRequests} outstanding requests and ${client.documentCount} documents recorded.`;
+    return `${client.name} is an ${client.status.toLowerCase()} client in ${client.industry}. Current engagement: ${engagement?.name ?? 'None'}, ${engagement?.progress ?? 0}% progress, deadline ${engagement?.deadline ?? 'not set'}. There are ${client.outstandingRequests} outstanding requests and ${client.documentCount} documents recorded.`;
   }
   return `The latest activity includes ${store.activities.slice(0, 3).map((item) => item.description.toLowerCase()).join('; ')}.`;
 }

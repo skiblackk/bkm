@@ -48,10 +48,6 @@ export function getAiProvider(): AiProvider | null {
   return null;
 }
 
-export function aiConfigured(): boolean {
-  return getAiProvider() !== null;
-}
-
 /**
  * Pick a model that actually exists on the provider. Only used when the
  * operator has not pinned AI_MODEL: we ask the provider what it serves rather

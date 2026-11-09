@@ -110,7 +110,7 @@ export interface ReportRecord {
   clientId: string;
   engagementId: string;
   reportType: string;
-  status: 'Draft / Demonstration';
+  status: 'Draft';
   createdAt: string;
 }
 
@@ -123,7 +123,7 @@ export interface DemoSnapshot {
   documents: DocumentRecord[];
   quotations: Quotation[];
   reports: ReportRecord[];
-  environment: 'DEMO ENVIRONMENT';
+  environment: 'LIVE';
 }
 
 export interface DashboardMetrics {

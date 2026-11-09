@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getDemoSession, hasPermission } from '@/lib/auth';
 import { getAccounting, getAttendance, getMetrics, getSnapshot } from '@/lib/data-access';
-import { getConfiguredDemoDate } from '@/lib/demo-config';
 import { businessDate } from '@/lib/business-clock';
-import { isProductionDataMode, hasSupabaseConfiguration } from '@/lib/runtime-mode';
+import { hasSupabaseConfiguration } from '@/lib/runtime-mode';
 
 export async function GET() {
   try {
-    if (isProductionDataMode && !hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured. Set the Supabase environment variables to serve live records.' }, { status: 503 });
+    if (!hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured. Set the Supabase environment variables to serve live records.' }, { status: 503 });
     const session = await getDemoSession();
     if (!session) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
     if (!hasPermission(session, 'view_dashboard')) return NextResponse.json({ error: 'Dashboard permission is required.' }, { status: 403 });
@@ -29,9 +28,9 @@ export async function GET() {
       environment: fullSnapshot.environment,
     };
     const attendance = await getAttendance();
-    const checkIn = session?.staffId ? attendance.records.find((record) => record.staffId === session.staffId && record.date === (isProductionDataMode ? businessDate() : getConfiguredDemoDate())) ?? null : null;
+    const checkIn = session?.staffId ? attendance.records.find((record) => record.staffId === session.staffId && record.date === businessDate()) ?? null : null;
     const accounting = hasPermission(session, 'view_finance') ? await getAccounting() : null;
-    return NextResponse.json({ snapshot, metrics: getMetrics(snapshot), accounting, attendance: { settings: attendance.settings, checkIn }, source: isProductionDataMode ? 'supabase repository' : 'server-side demonstration repository' });
+    return NextResponse.json({ snapshot, metrics: getMetrics(snapshot), accounting, attendance: { settings: attendance.settings, checkIn }, source: 'supabase repository' });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Workspace data could not be loaded.' }, { status: 500 });
   }

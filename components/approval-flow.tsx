@@ -245,9 +245,3 @@ export function PendingSignupsCard({ compact = false }: { compact?: boolean }) {
     </section>
   );
 }
-
-/** Compact count chip for navigation surfaces. */
-export function PendingBadge({ count }: { count: number }) {
-  if (!count) return null;
-  return <span className="ml-auto flex min-w-[18px] items-center justify-center rounded-full bg-gold px-1.5 py-0.5 text-[9px] font-bold text-navy">{count > 9 ? '9+' : count}</span>;
-}

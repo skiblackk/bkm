@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getDemoSession, hasPermission } from '@/lib/auth';
 import { recordAudit, getAuditEvents } from '@/lib/data-access';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { isProductionDataMode } from '@/lib/runtime-mode';
 
 function db() {
   const admin = createSupabaseAdminClient();
@@ -13,7 +12,6 @@ function db() {
 export async function GET() {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
-  if (!isProductionDataMode) return NextResponse.json({ requests: [] });
   const admin = db();
   const seesAll = hasPermission(session, 'assign_permissions') || hasPermission(session, 'approve_reports');
   const query = admin.from('approval_requests').select('*').order('created_at', { ascending: false }).limit(100);
@@ -25,7 +23,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
-  if (!isProductionDataMode) return NextResponse.json({ error: 'Approval workflows are available in production mode.' }, { status: 400 });
+ 
   try {
     const input = await request.json();
     const admin = db();

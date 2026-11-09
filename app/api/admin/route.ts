@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getDemoSession, listDemoAccounts, provisionDemoUser, updateDemoUserPermissions, hasPermission, type DemoSession } from '@/lib/auth';
+import { getDemoSession, hasPermission, type DemoSession } from '@/lib/auth';
 import { assertKnownPermissionKeys, validatePermissionKeys, PermissionError } from '@/lib/permissions';
 import { listWorkspaceUsers, provisionUser, wipeWorkspaceData } from '@/lib/data-access';
 import { addStaffMember, approveDocument, assignTask, getAccounting, getAttendance, getDocumentIntelligence, getInternalMessages, getSnapshot, removeUser, sendInternalMessage, updateAttendance, getAuditEvents, recordAudit } from '@/lib/data-access';
 import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-webhooks';
 import { getIntegrationStatus } from '@/lib/integrations';
 import { decideAiTriage, getAiTriageItems } from '@/lib/ai-triage';
-import { getConfiguredDemoDate } from '@/lib/demo-config';
 import { businessDate } from '@/lib/business-clock';
-import { isProductionDataMode, hasSupabaseConfiguration } from '@/lib/runtime-mode';
+import { hasSupabaseConfiguration } from '@/lib/runtime-mode';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
 async function requireSession() {
@@ -27,15 +26,15 @@ function requireActionPermission(session: DemoSession, ...permissions: string[])
 
 export async function GET() {
   try {
-  if (isProductionDataMode && !hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
+  if (!hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
   const session = await requireSession();
   requireActionPermission(session, 'view_user_directory', 'view_audit_logs', 'manage_workspace_settings');
   const snapshot = await getSnapshot();
   const attendance = await getAttendance();
-  const todayKey = isProductionDataMode ? businessDate() : getConfiguredDemoDate();
+  const todayKey = businessDate();
   const missing = attendance.records.filter((record) => record.date === todayKey && record.status === 'Not Checked In').map((record) => snapshot.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId);
   const communicationAlerts = getCommunicationAlerts();
-  return NextResponse.json({ snapshot, attendance, missing, accounting: await getAccounting(), document: await getDocumentIntelligence(), messages: await getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: await listWorkspaceUsers(), audit: await getAuditEvents(), environment: { mode: isProductionDataMode ? 'production' : 'demonstration', today: todayKey } });
+  return NextResponse.json({ snapshot, attendance, missing, accounting: await getAccounting(), document: await getDocumentIntelligence(), messages: await getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: await listWorkspaceUsers(), audit: await getAuditEvents(), environment: { mode: 'production', today: todayKey } });
   } catch (error) {
     const status = error instanceof PermissionError ? error.status : 500;
     return NextResponse.json({ error: error instanceof Error ? error.message : 'The admin workspace could not be loaded.' }, { status });
@@ -44,7 +43,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    if (isProductionDataMode && !hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
+    if (!hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
     const input = await request.json();
     const session = await requireSession();
 
@@ -65,21 +64,14 @@ export async function POST(request: Request) {
       requireActionPermission(session, 'invite_users');
       const permissions = assertKnownPermissionKeys(Array.isArray(input.permissions) ? input.permissions : JSON.parse(input.permissions ?? '[]'));
       if (!input.name || !input.email || !input.role || !Array.isArray(permissions)) throw new PermissionError('Name, email, role and permissions are required.', 400);
-      if (isProductionDataMode) {
-        const created = await provisionUser({ name: input.name, email: input.email, roleTitle: input.role, permissions, isAdmin: input.role === 'System Administrator' });
-        await recordAudit({ actorId: session.account, actorName: session.name, actorRole: session.role, action: 'create_user', targetType: 'User', targetId: created.userId, detail: `${input.name} created as ${input.role}`, severity: 'security' });
-        return NextResponse.json({ user: { account: created.userId, name: input.name, email: input.email, role: input.role, isAdmin: input.role === 'System Administrator', permissions, active: true }, tempPassword: created.tempPassword, audit: await getAuditEvents(), message: created.tempPassword ? `Account created. Temporary password: ${created.tempPassword}` : 'Account created.' });
-      }
-      const user = provisionDemoUser({ name: input.name, email: input.email, role: input.role, permissions });
-      const snapshot = await addStaffMember({ id: user.staffId ?? user.account, name: user.name, initials: user.initials, role: user.role, email: user.email ?? '', activeEngagements: 0, assignedTasks: 0, completedTasks: 0, overdueTasks: 0, availability: 100, color: '#4e6982', permissions: user.permissions });
-      await recordAudit({ actorId: session.account, actorName: session.name, actorRole: session.role, action: 'create_user', targetType: 'User', targetId: user.staffId ?? user.account, detail: `${user.name} created as ${user.role} with ${user.permissions.length} permissions`, severity: 'security' });
-      return NextResponse.json({ user, snapshot, audit: await getAuditEvents() });
+      const created = await provisionUser({ name: input.name, email: input.email, roleTitle: input.role, permissions, isAdmin: input.role === 'System Administrator' });
+      await recordAudit({ actorId: session.account, actorName: session.name, actorRole: session.role, action: 'create_user', targetType: 'User', targetId: created.userId, detail: `${input.name} created as ${input.role}`, severity: 'security' });
+      return NextResponse.json({ user: { account: created.userId, name: input.name, email: input.email, role: input.role, isAdmin: input.role === 'System Administrator', permissions, active: true }, tempPassword: created.tempPassword, audit: await getAuditEvents(), message: created.tempPassword ? `Account created. Temporary password: ${created.tempPassword}` : 'Account created.' });
     }
 
     if (input.action === 'update-permissions') {
       requireActionPermission(session, 'assign_permissions', 'revoke_permissions');
       const permissions = assertKnownPermissionKeys(Array.isArray(input.permissions) ? input.permissions : []);
-      if (isProductionDataMode) {
         const admin = createSupabaseAdminClient();
         if (!admin) throw new PermissionError('Supabase is not configured.', 503);
         const target = String(input.account ?? '');
@@ -92,10 +84,7 @@ export async function POST(request: Request) {
         if (added.length) await admin.from('user_permissions').insert(added.map((permission_key) => ({ user_id: target, permission_key, effect: 'allow', granted_by: session.account })));
         await recordAudit({ actorId: session.account, actorName: session.name, actorRole: session.role, action: 'update_permissions', targetType: 'User', targetId: target, detail: `Permissions updated: ${added.length} granted, ${stale.length} revoked`, severity: 'security' });
         return NextResponse.json({ users: await listWorkspaceUsers(), audit: await getAuditEvents() });
-      }
-      const user = updateDemoUserPermissions(input.account, permissions);
-      await recordAudit({ actorId: session.account, actorName: session.name, actorRole: session.role, action: 'update_permissions', targetType: 'User', targetId: user.staffId ?? user.account, detail: `Permissions updated for ${user.name}`, severity: 'security' });
-      return NextResponse.json({ users: await listDemoAccounts(), audit: await getAuditEvents() });
+
     }
 
     if (input.action === 'set-permission') {
@@ -107,7 +96,6 @@ export async function POST(request: Request) {
       const expiresAt = input.expiresAt ? new Date(input.expiresAt).toISOString() : null;
       const startsAt = input.startsAt ? new Date(input.startsAt).toISOString() : null;
       if (!target || !keys.length) throw new PermissionError('A user and a catalogue permission are required.', 400);
-      if (!isProductionDataMode) throw new PermissionError('Individual grants are managed through the permissions workspace in production.', 400);
       const admin = createSupabaseAdminClient();
       if (!admin) throw new PermissionError('Supabase is not configured.', 503);
       if (input.revoke) {

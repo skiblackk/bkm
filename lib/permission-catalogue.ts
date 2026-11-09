@@ -108,7 +108,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionEntry[] = [
 
 export type PermissionKey = (typeof PERMISSION_CATALOGUE)[number]['key'];
 export const PERMISSION_KEYS: ReadonlySet<string> = new Set(PERMISSION_CATALOGUE.map((entry) => entry.key));
-export const WORKSPACES = ['dashboard', 'tasks', 'projects', 'documents', 'finance', 'people', 'communications', 'ai', 'administration', 'engagements', 'teams'] as const;
+
 export const RESOURCE_TYPES = ['engagement', 'project', 'document', 'report', 'journal_entry', 'team'] as const;
 export const ACCESS_LEVELS = ['view', 'contribute', 'edit', 'manage'] as const;
 export const ADMIN_BYPASS_EXCLUSIONS: readonly string[] = ['view_payroll', 'view_confidential_documents'];

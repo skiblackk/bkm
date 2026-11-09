@@ -3,7 +3,7 @@ import { createTask, getSnapshot, updateTask } from '@/lib/data-access';
 import { z } from 'zod';
 import { hasPermission, requirePermission } from '@/lib/auth';
 import { askCeoCopilot } from '@/lib/ceo-copilot';
-import { isProductionDataMode, hasSupabaseConfiguration } from '@/lib/runtime-mode';
+import { hasSupabaseConfiguration } from '@/lib/runtime-mode';
 
 const schema = z.object({ question: z.string().min(2).max(2000) });
 
@@ -14,7 +14,7 @@ async function findRequestedTask(question: string) {
 
 export async function POST(request: Request) {
   try {
-    if (isProductionDataMode && !hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
+    if (!hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
     const session = await requirePermission('use_assistant');
     const { question } = schema.parse(await request.json());
     const lower = question.toLowerCase();

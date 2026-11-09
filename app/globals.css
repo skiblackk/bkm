@@ -60,7 +60,13 @@ button:active { transform: translateY(1px); }
 .statement-table .grand-total td { border-top: 2px solid var(--navy); border-bottom: 3px double var(--navy); font-weight: 800; color: var(--navy); }
 .statement-table .muted-row td { color: #8a919b; font-style: italic; }
 
-@layer components { .panel { @apply rounded-[8px] border border-line bg-white shadow-panel; position: relative; overflow: hidden; } .panel::before { content: ''; position: absolute; inset: 0 0 auto; height: 1px; background: var(--gold); opacity: .55; pointer-events: none; } .eyebrow { @apply text-[10px] font-semibold uppercase tracking-[0.17em] text-slate-500; } .section-title { @apply text-[15px] font-semibold tracking-[-0.01em] text-ink; } .status-dot { @apply inline-block h-2 w-2 rounded-full; } .tabular { font-variant-numeric: tabular-nums; } }
+@layer components {
+  .field { @apply w-full rounded-md border border-line bg-white px-3 py-2.5 text-xs text-ink outline-none transition-colors placeholder:text-slate-400; }
+  .field:focus { @apply border-teal-500; }
+  .field:disabled, .field[readonly] { @apply bg-slate-50 text-slate-500; }
+  .field.min-h-24 { min-height: 6rem; }
+  input.field.py-3, select.field.py-3 { padding-top: .75rem; padding-bottom: .75rem; }
+  .panel { @apply rounded-[8px] border border-line bg-white shadow-panel; position: relative; overflow: hidden; } .panel::before { content: ''; position: absolute; inset: 0 0 auto; height: 1px; background: var(--gold); opacity: .55; pointer-events: none; } .eyebrow { @apply text-[10px] font-semibold uppercase tracking-[0.17em] text-slate-500; } .section-title { @apply text-[15px] font-semibold tracking-[-0.01em] text-ink; } .status-dot { @apply inline-block h-2 w-2 rounded-full; } .tabular { font-variant-numeric: tabular-nums; } }
 
 @media (max-width: 767px) {
   .executive-brief__header { display: block; padding: 1.5rem 1.25rem 1.25rem; }

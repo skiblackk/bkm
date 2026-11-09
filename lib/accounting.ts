@@ -43,7 +43,7 @@ export function validateJournalEntry(entry: JournalEntry, existingReferences: st
 
 /**
  * Deterministic double-entry computation. Pure over its arguments so the
- * in-memory demonstration store and the Supabase repository share exactly
+ * ledger and the Supabase repository share exactly
  * one implementation of the accounting math.
  */
 export function computeAccountingSnapshot(chart: ChartAccount[], entries: JournalEntry[], options: { periodStart?: string; periodEnd?: string } = {}): AccountingSnapshot {
@@ -113,6 +113,5 @@ export function reverseJournalEntry(reference: string) {
   return getAccountingSnapshot();
 }
 
-export const demoChartOfAccounts = accounts;
-export const demoJournalEntries = journalEntries;
+
 export type { JournalLine };

@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getDemoSession, hasPermission } from '@/lib/auth';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { recordAudit } from '@/lib/data-access';
-import { isProductionDataMode } from '@/lib/runtime-mode';
 
 function db() {
   const admin = createSupabaseAdminClient();
@@ -13,7 +12,6 @@ function db() {
 export async function GET() {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
-  if (!isProductionDataMode) return NextResponse.json({ requests: [], settings: null });
   const admin = db();
   const seesAll = hasPermission(session, 'approve_leave') || hasPermission(session, 'manage_leave') || hasPermission(session, 'view_team_attendance');
   const query = admin.from('leave_requests').select('*').order('created_at', { ascending: false }).limit(100);
@@ -25,7 +23,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
-  if (!isProductionDataMode) return NextResponse.json({ error: 'Leave management is available in production mode.' }, { status: 400 });
+ 
   try {
     const input = await request.json();
     const admin = db();

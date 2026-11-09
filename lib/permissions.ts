@@ -42,8 +42,6 @@ export class PermissionError extends Error {
 
 const CATALOGUE_KEYS: ReadonlySet<string> = new Set(PERMISSION_CATALOGUE.map((entry) => entry.key));
 
-export function isKnownPermissionKey(key: string): boolean { return CATALOGUE_KEYS.has(key); }
-
 /** Reject anything not in the catalogue. Used for every admin-supplied key list. */
 export function validatePermissionKeys(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
@@ -129,30 +127,7 @@ export function accessHas(access: EffectiveAccess, permission: PermissionId): bo
   return grantsSatisfy(access.permissions, permission);
 }
 
-export async function userHasPermission(userId: string, permission: PermissionId): Promise<boolean> {
-  const access = await getEffectiveAccess(userId);
-  return access ? accessHas(access, permission) : false;
-}
-
 /** Segregation of duties: nobody approves their own restricted record. */
-export function assertNotSelfApproval(actorId: string, ownerId: string | null | undefined, what: string, adminOverride = false) {
-  if (ownerId && actorId === ownerId && !adminOverride) {
-    throw new PermissionError(`Segregation of duties: you cannot approve, post or reverse ${what} that you created. Ask another authorised reviewer.`, 403);
-  }
-}
-
 const RESOURCE_LEVEL_RANK: Record<string, number> = { view: 1, contribute: 2, edit: 3, manage: 4 };
 
 /** Resource-level access check against the allowlisted resource types. */
-export async function checkResourceAccess(userId: string, resourceType: string, resourceId: string, level: 'view' | 'contribute' | 'edit' | 'manage'): Promise<boolean> {
-  if (!(RESOURCE_TYPES as readonly string[]).includes(resourceType)) throw new PermissionError(`Unknown resource type: ${resourceType}`, 400);
-  if (!(ACCESS_LEVELS as readonly string[]).includes(level)) throw new PermissionError(`Unknown access level: ${level}`, 400);
-  const admin = createSupabaseAdminClient();
-  if (!admin) return false;
-  const access = await getEffectiveAccess(userId);
-  if (!access) return false;
-  if (access.isAdmin) return true;
-  const { data } = await admin.from('resource_access').select('access_level, expires_at').eq('user_id', userId).eq('resource_type', resourceType).eq('resource_id', resourceId);
-  const rank = RESOURCE_LEVEL_RANK[level];
-  return (data ?? []).some((row: { access_level: string; expires_at: string | null }) => grantActive({ expires_at: row.expires_at }) && (RESOURCE_LEVEL_RANK[row.access_level] ?? 0) >= rank);
-}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, ArrowRight, BookOpen, CheckCircle2, Clock3, Download, FileSearch, Megaphone, MessageSquare, Search, ShieldCheck, UserCheck, UsersRound } from 'lucide-react';
 import PrivateMessages from './private-messages';
+import { businessDate } from '@/lib/business-clock';
 
 type ModuleId = 'access' | 'people' | 'communications' | 'finance';
 type Session = { account: string; name: string; role: string; initials: string; isAdmin: boolean; staffId: string | null; permissions: string[] };
@@ -23,7 +24,7 @@ export default function AdminModuleWorkspace({ module }: { module: ModuleId }) {
   const config = modules.find((item) => item.id === module)!;
   const load = async () => { const [adminResponse, sessionResponse] = await Promise.all([fetch('/api/admin', { cache: 'no-store' }), fetch('/api/auth/session', { cache: 'no-store' })]); if (adminResponse.ok) setPayload(await adminResponse.json()); if (sessionResponse.ok) setSession((await sessionResponse.json()).session); };
   useEffect(() => { void load(); void fetch('/api/presence', { method: 'POST' }); const timer = window.setInterval(() => { void fetch('/api/presence', { method: 'POST' }); }, 30_000); return () => window.clearInterval(timer); }, []);
-  const today = payload?.attendance.records.filter((record) => record.date === '2026-10-01') ?? [];
+  const today = payload?.attendance.records.filter((record) => record.date === businessDate()) ?? [];
   const present = today.filter((record) => record.status === 'Present' || record.status === 'Remote Work').length; const late = today.filter((record) => record.status === 'Late').length; const absent = today.filter((record) => record.status === 'Not Checked In').length;
   const filteredUsers = useMemo(() => payload?.users.filter((user) => `${user.name} ${user.email ?? ''} ${user.role}`.toLowerCase().includes(query.toLowerCase())) ?? [], [payload, query]);
   const filteredAudit = useMemo(() => payload?.audit.filter((event) => `${event.actorName} ${event.action} ${event.detail}`.toLowerCase().includes(query.toLowerCase())) ?? [], [payload, query]);

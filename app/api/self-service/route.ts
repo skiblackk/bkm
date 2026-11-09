@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getDemoSession, hasPermission } from '@/lib/auth';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { recordAudit } from '@/lib/data-access';
-import { isProductionDataMode } from '@/lib/runtime-mode';
 import { isPermissionKey } from '@/lib/permission-catalogue';
 
 function db() {
@@ -14,7 +13,6 @@ function db() {
 export async function GET() {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
-  if (!isProductionDataMode) return NextResponse.json({ leaveRequests: [], accessRequests: [], activity: [] });
   const admin = db();
   const [leave, access, activity, effective] = await Promise.all([
     admin.from('leave_requests').select('id, leave_type, starts_on, ends_on, reason, status, decided_at, decision_note').eq('user_id', session.account).order('created_at', { ascending: false }).limit(20),
@@ -33,7 +31,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
-  if (!isProductionDataMode) return NextResponse.json({ error: 'Self-service is available in production mode.' }, { status: 400 });
+ 
   try {
     const input = await request.json();
     const admin = db();

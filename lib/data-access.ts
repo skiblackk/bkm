@@ -1,181 +1,154 @@
-import { isProductionDataMode, hasSupabaseConfiguration } from './runtime-mode';
-import * as demo from './repository';
+import { hasSupabaseConfiguration } from './runtime-mode';
 import * as production from './supabase-repository';
 import type { DemoSnapshot, InternalMessage, Quotation, ReportRecord, TaskPriority, TaskStatus } from './types';
 import type { AccountingSnapshot, DocumentExtraction, JournalEntry } from './extended-types';
 import type { AuditEvent } from './access-control';
 
 /**
- * Repository dispatch. In production the Supabase repository serves real
- * records; outside production the in-memory demonstration store serves the
- * seeded fixtures. Both stores implement the same contract, so routes and
- * screens are identical in either mode.
+ * Data access. There is exactly one store: the Supabase repository. The
+ * in-memory demonstration store was removed, so a missing configuration is an
+ * error rather than a silent switch to fixture data.
  */
 
 function assertRepositoryReady() {
-  if (isProductionDataMode && !hasSupabaseConfiguration) {
-    throw new Error('The production Supabase repository is not configured. Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY.');
+  if (!hasSupabaseConfiguration) {
+    throw new Error('Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY.');
   }
 }
 
-const useProduction = () => isProductionDataMode && hasSupabaseConfiguration;
-
 export async function getSnapshot(): Promise<DemoSnapshot> {
-  if (useProduction()) return production.getSnapshot();
   assertRepositoryReady();
-  return demo.getSnapshot();
+  return production.getSnapshot();
 }
 
-export const getMetrics = demo.getMetrics;
+export { getMetrics } from './repository-metrics';
 
 export async function getClient(clientId: string) {
-  if (useProduction()) return production.getClient(clientId);
   assertRepositoryReady();
-  return demo.getClient(clientId);
+  return production.getClient(clientId);
 }
 
 export async function addStaffMember(member: DemoSnapshot['staff'][number]) {
-  if (useProduction()) return production.addStaffMember(member);
   assertRepositoryReady();
-  return demo.addStaffMember(member);
+  return production.addStaffMember(member);
 }
 
 export async function getAttendance() {
-  if (useProduction()) return production.getAttendance();
   assertRepositoryReady();
-  return demo.getAttendance();
+  return production.getAttendance();
 }
 
 export async function updateAttendance(staffId: string, action: 'check-in' | 'check-out', note?: string) {
-  if (useProduction()) return production.updateAttendance(staffId, action, note);
   assertRepositoryReady();
-  return demo.updateAttendance(staffId, action, note);
+  return production.updateAttendance(staffId, action, note);
 }
 
 export async function getInternalMessages(): Promise<InternalMessage[]> {
-  if (useProduction()) return production.getInternalMessages();
   assertRepositoryReady();
-  return demo.getInternalMessages();
+  return production.getInternalMessages();
 }
 
 export async function sendInternalMessage(input: { senderId: string; senderName: string; recipientId: string | 'all'; recipientName: string; body: string; kind?: 'direct' | 'broadcast' | 'alert' }) {
-  if (useProduction()) return production.sendInternalMessage(input);
   assertRepositoryReady();
-  return demo.sendInternalMessage(input);
+  return production.sendInternalMessage(input);
 }
 
 export async function removeUser(staffId: string) {
-  if (useProduction()) return production.removeUser(staffId);
   assertRepositoryReady();
-  return demo.removeUser(staffId);
+  return production.removeUser(staffId);
 }
 
 export async function assignTask(taskId: string, staffId: string) {
-  if (useProduction()) return production.assignTask(taskId, staffId);
   assertRepositoryReady();
-  return demo.assignTask(taskId, staffId);
+  return production.assignTask(taskId, staffId);
 }
 
 export async function getAccounting(options?: { periodStart?: string; periodEnd?: string }): Promise<AccountingSnapshot> {
-  if (useProduction()) return production.getAccounting(options);
   assertRepositoryReady();
-  return demo.getAccounting(options);
+  return production.getAccounting(options);
 }
 
 export async function addJournalEntry(entry: JournalEntry, createdBy?: string | null) {
-  if (useProduction()) return production.addJournalEntry(entry, createdBy);
   assertRepositoryReady();
-  return demo.addJournalEntry(entry);
+  return production.addJournalEntry(entry, createdBy);
 }
 
 export async function updateJournalStatus(reference: string, options: { to: string; from: string[]; actorId: string; actorName: string; isAdmin: boolean; overrideReason?: string }) {
-  if (useProduction()) return production.updateJournalStatus(reference, options);
-  throw new Error('The journal workflow requires the production repository.');
+  assertRepositoryReady();
+  return production.updateJournalStatus(reference, options);
 }
 
 export async function reverseJournalEntry(reference: string) {
-  if (useProduction()) return production.reverseJournalEntry(reference);
   assertRepositoryReady();
-  return demo.reverseJournalEntry(reference);
+  return production.reverseJournalEntry(reference);
 }
 
 export async function getDocumentIntelligence(): Promise<DocumentExtraction> {
-  if (useProduction()) return production.getDocumentIntelligence();
   assertRepositoryReady();
-  return demo.getDocumentIntelligence();
+  return production.getDocumentIntelligence();
 }
 
 export async function approveDocument() {
-  if (useProduction()) return production.approveDocument();
   assertRepositoryReady();
-  return demo.approveDocument();
+  return production.approveDocument();
 }
 
 export async function recordAudit(input: Omit<AuditEvent, 'id' | 'timestamp'>): Promise<AuditEvent> {
-  if (useProduction()) return production.recordAudit(input);
   assertRepositoryReady();
-  return demo.recordAudit(input);
+  return production.recordAudit(input);
 }
 
 export async function getAuditEvents(filters?: { actorId?: string; action?: string }): Promise<AuditEvent[]> {
-  if (useProduction()) return production.getAuditEvents(filters);
   assertRepositoryReady();
-  return demo.getAuditEvents(filters);
+  return production.getAuditEvents(filters);
 }
 
 export async function createClient(input: { name: string; industry: string; location: string; contactName: string; contactEmail: string; contactPhone?: string; services?: string[]; description?: string }) {
-  if (useProduction()) return production.createClient(input);
   assertRepositoryReady();
-  return demo.createClient(input);
+  return production.createClient(input);
 }
 
 export async function updateTask(taskId: string, patch: { status?: TaskStatus; assignedTo?: string }) {
-  if (useProduction()) return production.updateTask(taskId, patch);
   assertRepositoryReady();
-  return demo.updateTask(taskId, patch);
+  return production.updateTask(taskId, patch);
 }
 
 export async function createTask(input: { title: string; description?: string; clientId?: string; engagementId?: string; assignedTo?: string; priority?: TaskPriority; dueDate?: string }) {
-  if (useProduction()) return production.createTask(input);
   assertRepositoryReady();
-  return demo.createTask(input);
+  return production.createTask(input);
 }
 
 export async function createQuotation(input: { clientId: string; service: string; description: string; terms: string; items: { id: string; description: string; quantity: number; unitPrice: number }[] }): Promise<DemoSnapshot> {
-  if (useProduction()) return production.createQuotation(input);
   assertRepositoryReady();
-  return demo.createQuotation(input);
+  return production.createQuotation(input);
 }
 
 export async function createReport(input: { clientId: string; engagementId: string; reportType: string }): Promise<{ snapshot: DemoSnapshot; report: ReportRecord }> {
-  if (useProduction()) return production.createReport(input);
   assertRepositoryReady();
-  return demo.createReport(input);
+  return production.createReport(input);
 }
 
 export async function searchForAssistant(question: string) {
-  if (useProduction()) return production.searchForAssistant(question);
   assertRepositoryReady();
-  return demo.searchForAssistant(question);
+  return production.searchForAssistant(question);
 }
 
 export async function formatAssistantAnswer(question: string, result: Awaited<ReturnType<typeof searchForAssistant>>): Promise<string> {
-  if (useProduction()) return production.formatAssistantAnswer(question, result as Awaited<ReturnType<typeof production.searchForAssistant>>);
   assertRepositoryReady();
-  return demo.formatAssistantAnswer(question, result as ReturnType<typeof demo.searchForAssistant>);
+  return production.formatAssistantAnswer(question, result as Awaited<ReturnType<typeof production.searchForAssistant>>);
 }
 
 export async function listWorkspaceUsers() {
-  if (useProduction()) return (await import('./supabase-repository')).listWorkspaceUsers();
-  return (await import('./auth')).listDemoAccounts();
+  assertRepositoryReady();
+  return (await import('./supabase-repository')).listWorkspaceUsers();
 }
 
 export async function wipeWorkspaceData() {
-  if (useProduction()) return (await import('./supabase-repository')).wipeWorkspaceData();
-  throw new Error('Resetting workspace data is only available against the production repository.');
+  assertRepositoryReady();
+  return (await import('./supabase-repository')).wipeWorkspaceData();
 }
 
 export async function provisionUser(input: { name: string; email: string; roleTitle: string; password?: string; isAdmin?: boolean; permissions?: string[] }) {
-  if (useProduction()) return (await import('./supabase-repository')).provisionUser(input);
-  throw new Error('Creating sign-in accounts is only available against the production repository.');
+  assertRepositoryReady();
+  return (await import('./supabase-repository')).provisionUser(input);
 }

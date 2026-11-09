@@ -58,4 +58,4 @@ export const africaTaxRates: AfricaTaxCountry[] = [
  {country:'Zambia',iso3:'ZMB',capital:'Lusaka',corporate_income_tax_rate:30,vat_rate:16,currency:'ZMW',tax_year_or_effective_date:'PwC reviewed 2026-07-24',source_url:P,source_name:'PwC WWTS',caveat:'Mining and other sector rules and investment incentives can differ.'},
  {country:'Zimbabwe',iso3:'ZWE',capital:'Harare',corporate_income_tax_rate:25.75,vat_rate:15,currency:'ZWG',tax_year_or_effective_date:'PKF WWTG 2026/27',source_url:K,source_name:'PKF WWTG 2026/27',caveat:'25% normal tax plus 3% AIDS levy produces 25.75% effective; exporter rates may differ.'},
 ];
-export const africaTaxSourceNotes = 'Coverage checked as 54 sovereign African UN member states; Western Sahara excluded as disputed and not a UN member. Rates are headline standard corporate income tax and VAT/GST percentages, not effective tax advice. Null means not verified, never zero. Primary sources include PwC Worldwide Tax Summaries CIT/VAT charts and PKF Worldwide Tax Guide 2026/27, with older or supplemental sources flagged per record. Verify local law before advising.';
+

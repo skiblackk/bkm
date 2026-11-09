@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getDemoSession, hasPermission } from '@/lib/auth';
 import { recordAudit } from '@/lib/data-access';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { isProductionDataMode } from '@/lib/runtime-mode';
 
 function db() {
   const admin = createSupabaseAdminClient();
@@ -13,7 +12,6 @@ function db() {
 export async function GET() {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
-  if (!isProductionDataMode) return NextResponse.json({ teams: [] });
   const admin = db();
   const { data: memberships } = await admin.from('team_members').select('team_id').eq('user_id', session.account);
   const teamIds = (memberships ?? []).map((row: { team_id: string }) => row.team_id);
@@ -25,7 +23,6 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getDemoSession();
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
-  if (!isProductionDataMode) return NextResponse.json({ error: 'Teams are available in production mode.' }, { status: 400 });
   try {
     const input = await request.json();
     const admin = db();

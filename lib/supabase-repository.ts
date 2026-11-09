@@ -1,8 +1,8 @@
 import { createSupabaseAdminClient } from './supabase/admin';
 import { computeAccountingSnapshot, validateJournalEntry, type ChartAccount } from './accounting';
-import { enrichSnapshot, getMetrics } from './repository';
+import { enrichSnapshot, getMetrics } from './repository-metrics';
 import { searchWorkspaceForAssistant, formatWorkspaceAssistantAnswer, type AssistantData, type AssistantSearchResult } from './assistant-search';
-import { getConfiguredDemoDate } from './demo-config';
+
 import { attendanceStatusFor, businessDate, businessTime, durationMinutesBetween } from './business-clock';
 import { attendanceSettings as defaultAttendanceSettings } from './attendance-data';
 import type { DemoSnapshot, InternalMessage, Quotation, ReportRecord, TaskPriority, TaskStatus } from './types';
@@ -10,9 +10,8 @@ import type { AccountingSnapshot, AttendanceRecord, DocumentExtraction, JournalE
 import type { AuditEvent } from './access-control';
 
 /**
- * Production repository: every demonstration-store capability served from the
+ * Production repository: every data-access capability served from the
  * Supabase database. Route code talks to this through `lib/data-access.ts`,
- * so the in-memory demonstration store and this adapter are interchangeable.
  * All reads map rows to the same view-model shapes the workspace renders.
  */
 
@@ -204,7 +203,7 @@ function assembleSnapshot(rows: SnapshotRows): DemoSnapshot {
     recordType: activity.record_type as DemoSnapshot['activities'][number]['recordType'],
     recordId: String(activity.record_id ?? ''),
   }));
-  return enrichSnapshot({ staff, clients, engagements, tasks, activities, documents, quotations, reports, environment: 'DEMO ENVIRONMENT' });
+  return enrichSnapshot({ staff, clients, engagements, tasks, activities, documents, quotations, reports, environment: 'LIVE' });
 }
 
 export async function getSnapshot(): Promise<DemoSnapshot> {
@@ -585,19 +584,19 @@ export async function createQuotation(input: { clientId: string; service: string
 
 export async function createReport(input: { clientId: string; engagementId: string; reportType: string }): Promise<{ snapshot: DemoSnapshot; report: ReportRecord }> {
   const supabase = db();
-  const { data: created, error } = await supabase.from('reports').insert({ client_id: input.clientId, engagement_id: input.engagementId, report_type: input.reportType, status: 'Draft / Demonstration' }).select('id').single();
+  const { data: created, error } = await supabase.from('reports').insert({ client_id: input.clientId, engagement_id: input.engagementId, report_type: input.reportType, status: 'Draft' }).select('id').single();
   if (error) throw new Error(error.message);
   await supabase.from('activity_logs').insert({ event_type: 'Status changed', description: 'Draft report generated', actor_name: 'Workspace user', record_type: 'Engagement', record_id: input.engagementId });
   await recordAudit({ actorId: 'system', actorName: 'BKM Operations Hub', actorRole: 'System', action: 'create_report', targetType: 'Report', targetId: String(created.id), detail: 'A draft report was generated', severity: 'change' });
   await refreshRows();
   const snapshot = await getSnapshot();
-  const report = snapshot.reports.find((item) => item.id === String(created.id)) ?? { id: String(created.id), clientId: input.clientId, engagementId: input.engagementId, reportType: input.reportType, status: 'Draft / Demonstration', createdAt: 'Just now' };
+  const report = snapshot.reports.find((item) => item.id === String(created.id)) ?? { id: String(created.id), clientId: input.clientId, engagementId: input.engagementId, reportType: input.reportType, status: 'Draft', createdAt: 'Just now' };
   return { snapshot, report };
 }
 
 async function assistantData(): Promise<AssistantData> {
   const snapshot = await getSnapshot();
-  return { snapshot, attendance: await getAttendance(), accounting: await getAccounting(), demoDate: getConfiguredDemoDate(), metrics: getMetrics(snapshot) };
+  return { snapshot, attendance: await getAttendance(), accounting: await getAccounting(), businessDay: businessDate(), metrics: getMetrics(snapshot) };
 }
 
 export async function searchForAssistant(question: string): Promise<AssistantSearchResult> {

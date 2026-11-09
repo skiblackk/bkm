@@ -4,7 +4,6 @@ import { getEffectiveAccess, assertKnownPermissionKeys, PermissionError } from '
 import { PERMISSION_CATALOGUE, ROLE_TEMPLATES } from '@/lib/permission-catalogue';
 import { recordAudit, getAuditEvents } from '@/lib/data-access';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
-import { isProductionDataMode } from '@/lib/runtime-mode';
 
 export async function GET(request: Request) {
   const session = await getDemoSession();
@@ -52,7 +51,6 @@ export async function POST(request: Request) {
   if (!session) return NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 });
   try {
     const input = await request.json();
-    if (!isProductionDataMode) return NextResponse.json({ error: 'Role management is available in production mode.' }, { status: 400 });
     const admin = createSupabaseAdminClient();
     if (!admin) return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 503 });
 
