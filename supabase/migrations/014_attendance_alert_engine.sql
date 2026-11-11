@@ -137,16 +137,18 @@ declare
   v_notif uuid;
   v_created int := 0;
   v_skipped int := 0;
+  v_deadline time;
   r record;
 begin
+  select reporting_deadline into v_deadline from public.bkm_attendance_settings();
   for r in select * from public.bkm_attendance_alert_candidates(v_date) loop
     if r.skip_reason is null then
       v_key := 'attendance:missing:' || r.profile_id || ':' || v_date;
       insert into public.notifications (recipient_id, category, priority, title, body, link_path, related_type, related_id, dedupe_key)
       select admin_id, 'Attendance', 'High',
              'Not checked in by 09:30 AM',
-             r.full_name || ' had not checked in by the 09:30 AM reporting deadline on ' ||
-               to_char(v_date, 'DD Mon YYYY') || '. Status: Not checked in by 09:30 AM.',
+             r.full_name || ' had not checked in by the ' || to_char(v_deadline, 'HH24:MI') ||
+               ' reporting deadline on ' || to_char(v_date, 'DD Mon YYYY') || '.',
              '/admin/people?date=' || to_char(v_date, 'YYYY-MM-DD') || '&staff=' || r.profile_id,
              'attendance', r.profile_id, v_key
       from public.bkm_attendance_alert_recipients() as admin_id
