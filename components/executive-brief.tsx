@@ -3,7 +3,7 @@
 import { ArrowRight, CalendarDays, CircleAlert, FileText, ShieldCheck } from 'lucide-react';
 import type { DashboardMetrics, DemoSnapshot } from '@/lib/types';
 import type { AccountingSnapshot } from '@/lib/extended-types';
-import { DEMO_DATE } from '@/lib/demo-config';
+import { businessDate, businessDateLong } from '@/lib/business-clock';
 
 type Props = {
   data: DemoSnapshot;
@@ -15,7 +15,7 @@ type Props = {
 const money = (value: number) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(value);
 
 export default function ExecutiveBrief({ data, metrics, accounting, onNavigate }: Props) {
-  const overdue = data.tasks.filter((task) => task.status !== 'Completed' && new Date(task.dueDate).getTime() < new Date(DEMO_DATE).getTime());
+  const overdue = data.tasks.filter((task) => task.status !== 'Completed' && new Date(task.dueDate).getTime() < new Date(`${businessDate()}T00:00:00+03:00`).getTime());
   const atRisk = data.engagements.filter((engagement) => engagement.status !== 'Completed' && engagement.progress < 60);
   const pendingQuotes = data.quotations.filter((quotation) => quotation.status === 'Draft' || quotation.status === 'Ready for review');
   const balanceState = accounting ? (accounting.balanceSheet.balanced ? 'Balanced' : 'Requires review') : 'Finance access restricted';
@@ -24,13 +24,13 @@ export default function ExecutiveBrief({ data, metrics, accounting, onNavigate }
     <section className="executive-brief">
       <div className="executive-brief__header">
         <div>
-          <div className="eyebrow text-gold/80">Executive overview · internal demonstration</div>
+          <div className="eyebrow text-gold/80">Executive overview · live accounts</div>
           <h1 className="mt-2 max-w-3xl text-[29px] font-semibold leading-[1.08] tracking-[-0.045em] text-white md:text-[38px]">The work that needs a decision today.</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/65">A concise operating brief across delivery, people and the current financial record. Select any signal to investigate the source register.</p>
         </div>
         <div className="executive-brief__date">
           <CalendarDays size={16} className="text-gold" />
-          <div><div className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/45">Reporting date</div><div className="mt-1 text-sm font-semibold text-white">01 October 2026</div><div className="mt-1 text-[11px] text-white/45">Nairobi · EAT · demo period</div></div>
+          <div><div className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/45">Reporting date</div><div className="mt-1 text-sm font-semibold text-white">{businessDateLong()}</div><div className="mt-1 text-[11px] text-white/45">Nairobi · EAT</div></div>
         </div>
       </div>
       <div className="executive-brief__signals">

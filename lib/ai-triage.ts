@@ -15,7 +15,6 @@ export type AiTriageItem = {
   reasoning: string;
   suggestedReply: string;
   status: TriageStatus;
-  demo: boolean;
   createdAt: string;
 };
 
@@ -39,19 +38,15 @@ function classify(message: string, subject?: string): Pick<AiTriageItem, 'priori
 }
 
 export function getAiTriageItems(alerts: CommunicationAlert[]): AiTriageItem[] {
-  if (!alerts.length) {
-    const demo = classify('Please confirm whether the September review pack is ready for management review today.', 'Management review pack — demo inbox sample');
-    const decision = decisions['demo-001'];
-    return [{ id: 'triage-demo-001', alertId: 'alert-demo-001', channel: 'gmail', senderName: 'Demo client contact', subject: 'Management review pack — demo inbox sample', message: 'Please confirm whether the September review pack is ready for management review today.', ...demo, ...decision, status: decision?.status ?? 'Needs approval', demo: true, createdAt: 'Demo sample' }];
-  }
+  if (!alerts.length) return [];
   return alerts.map((alert) => {
     const base = classify(alert.body, alert.subject);
     const decision = decisions[alert.id];
-    return { id: `triage-${alert.id}`, alertId: alert.id, channel: alert.channel, senderName: alert.senderName, subject: alert.subject, message: alert.body, ...base, status: decision?.status ?? 'Needs approval', suggestedReply: decision?.suggestedReply ?? base.suggestedReply, demo: false, createdAt: alert.createdAt };
+    return { id: `triage-${alert.id}`, alertId: alert.id, channel: alert.channel, senderName: alert.senderName, subject: alert.subject, message: alert.body, ...base, status: decision?.status ?? 'Needs approval', suggestedReply: decision?.suggestedReply ?? base.suggestedReply, createdAt: alert.createdAt };
   });
 }
 
 export function decideAiTriage(id: string, status: Exclude<TriageStatus, 'Needs approval'>, suggestedReply?: string) {
-  decisions[id.replace(/^triage-/, '')] = { status, suggestedReply: suggestedReply?.trim() || getAiTriageItems([])[0].suggestedReply };
+  decisions[id.replace(/^triage-/, '')] = { status, suggestedReply: suggestedReply?.trim() || 'Thank you for your message. We have received it and will review the details before responding with the next step.' };
   return status;
 }

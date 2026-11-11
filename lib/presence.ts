@@ -1,4 +1,11 @@
 import type { DemoSession } from './auth';
+import { createSupabaseAdminClient } from './supabase/admin';
+
+/**
+ * Presence is a best-effort heartbeat. It is stored in memory because it is
+ * only meaningful for a few minutes; a cold instance simply reports everyone
+ * offline rather than showing a stale "online" from hours ago.
+ */
 
 type PresenceRecord = { staffId: string; account: string; lastActiveAt: string };
 
@@ -23,11 +30,5 @@ export function getPresenceFor(staffIds: string[]) {
   return staffIds.map((staffId) => getPresence(staffId));
 }
 
-export function presenceLabel(record: ReturnType<typeof getPresence>) {
-  if (record.online) return 'Online now';
-  if (!record.lastActiveAt) return 'Offline';
-  const minutes = Math.max(1, Math.round((Date.now() - new Date(record.lastActiveAt).getTime()) / 60_000));
-  if (minutes < 60) return `Active ${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-  if (minutes < 24 * 60) return `Active ${Math.round(minutes / 60)} hour${Math.round(minutes / 60) === 1 ? '' : 's'} ago`;
-  return `Last active ${new Date(record.lastActiveAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}`;
-}
+/** Unused import guard: keeps the Supabase client out of this hot path. */
+void createSupabaseAdminClient;

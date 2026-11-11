@@ -1,49 +1,187 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+/**
+ * Uploaded client documents.
+ *
+ * Files are parsed on upload and the extracted text plus the computed
+ * accounting analysis are stored in `document_extractions`, so a document can
+ * be reopened and questioned days later instead of vanishing when the
+ * serverless instance recycles. Raw bytes are not retained.
+ */
+
 import { randomUUID } from 'node:crypto';
-import { writeFile, unlink } from 'node:fs/promises';
-import * as XLSX from 'xlsx';
+import { parseDocument, type Grid } from './document-parser';
+import { analyseDocument, type DocumentAnalysis } from './accounting-engine';
+import { createSupabaseAdminClient } from './supabase/admin';
 
-const execFileAsync = promisify(execFile);
 export type ScanStatus = 'AI analyzed' | 'Extracted for review' | 'Failed';
-export interface UploadedDocument { id: string; clientId: string; clientName: string; filename: string; size: number; mimeType: string; uploadedAt: string; status: ScanStatus; summary: string; extractedText: string; keyFields: { label: string; value: string }[]; transactions: { date: string; description: string; amount: string }[]; warnings: string[]; }
-const uploads: UploadedDocument[] = [];
 
-function localAnalyze(text: string, filename: string, workbookMeta?: { sheets: string[]; rows: number }) {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const transactions = lines.slice(0, 120).map((line) => { const parts = line.split(/[,;\t|]/).map((part) => part.trim()); const date = parts.find((part) => /\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}/.test(part)) ?? ''; const amount = parts.find((part) => /(?:KES|USD|EUR|GBP)?\s?\d[\d,]*(?:\.\d{2})?/.test(part.replace(/[^\d.,A-Za-z\s-]/g, ''))) ?? ''; return date && amount ? { date, description: parts.filter((part) => part !== date && part !== amount).join(' · ').slice(0, 160), amount } : null; }).filter(Boolean) as UploadedDocument['transactions'];
-  const amounts = (text.match(/(?:KES|USD|EUR|GBP)?\s?\d[\d,]*(?:\.\d{2})?/g) ?? []).slice(0, 30);
-  const workbookNote = workbookMeta ? ` It contains ${workbookMeta.sheets.length} worksheet${workbookMeta.sheets.length === 1 ? '' : 's'} and ${workbookMeta.rows.toLocaleString()} data rows.` : '';
-  return { summary: `${filename} was read server-side across the full available text.${workbookNote} The review found ${lines.length.toLocaleString()} non-empty lines, ${transactions.length} transaction-like preview rows and ${amounts.length} sampled amount fields. Ask for a specific schedule, balance sheet or management summary and review the source before posting anything to accounting.`, keyFields: [{ label: 'Rows / lines read', value: lines.length.toLocaleString() }, ...(workbookMeta ? [{ label: 'Worksheets', value: String(workbookMeta.sheets.length) }, { label: 'Workbook rows', value: workbookMeta.rows.toLocaleString() }] : []), { label: 'Transaction preview', value: String(transactions.length) }, { label: 'Amount fields sampled', value: String(amounts.length) }], transactions, warnings: transactions.length === 0 ? ['No transaction-like rows were confidently detected. Include headers with dates and amounts for better extraction.'] : ['Extraction is a reviewable draft. It does not create accounting entries automatically.'] };
+export type DocumentKeyField = { label: string; value: string };
+
+export type UploadedDocument = {
+  id: string;
+  ownerId: string;
+  clientId: string;
+  clientName: string;
+  filename: string;
+  size: number;
+  mimeType: string;
+  uploadedAt: string;
+  status: ScanStatus;
+  summary: string;
+  keyFields: DocumentKeyField[];
+  transactions: { date: string; description: string; amount: string }[];
+  warnings: string[];
+  analysis: DocumentAnalysis | null;
+};
+
+type StoredDocument = UploadedDocument & { extractedText: string; grid: Grid };
+
+/** Kept only so a document uploaded moments ago can be read before the row lands. */
+const recent = new Map<string, StoredDocument>();
+
+const money = (currency: string, value: number) => `${currency} ${value.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function summarise(filename: string, analysis: DocumentAnalysis, rowCount: number): { summary: string; keyFields: DocumentKeyField[]; transactions: UploadedDocument['transactions']; status: ScanStatus } {
+  const currency = analysis.currency;
+  const totals = analysis.statements.totals;
+  const keyFields: DocumentKeyField[] = [
+    { label: 'Rows read', value: rowCount.toLocaleString() },
+    { label: 'Transactions counted', value: analysis.diagnostics.rowsCounted.toLocaleString() },
+    { label: 'Currency', value: currency },
+  ];
+  let summary: string;
+  if (analysis.kind === 'trial-balance') {
+    summary = `${filename} was read as a trial balance: ${analysis.diagnostics.rowsCounted} account lines totalling ${money(currency, analysis.diagnostics.debitTotal)} debit and ${money(currency, analysis.diagnostics.creditTotal)} credit. The statements below were calculated from those lines.`;
+    keyFields.push({ label: 'Total assets', value: money(currency, totals.assets) }, { label: 'Total liabilities', value: money(currency, totals.liabilities) }, { label: 'Net profit', value: money(currency, totals.netProfit) });
+  } else if (analysis.kind === 'ledger') {
+    summary = `${filename} was read as a transaction listing: ${analysis.diagnostics.rowsCounted} entries over the period. Money in and money out were classified from the row descriptions, not guessed.`;
+    if (analysis.diagnostics.openingBalance !== null) keyFields.push({ label: 'Opening balance', value: money(currency, analysis.diagnostics.openingBalance) });
+    if (analysis.diagnostics.closingBalance !== null) keyFields.push({ label: 'Closing balance', value: money(currency, analysis.diagnostics.closingBalance) });
+    keyFields.push({ label: 'Net movement', value: money(currency, totals.netProfit) });
+  } else {
+    summary = `${filename} was read, but no dated rows with amounts were found, so no financial statement could be calculated. The full text is still available to the assistant for questions about its contents.`;
+  }
+  const transactions = analysis.ledger.slice(0, 60).map((row) => ({
+    date: row.date || '—',
+    description: row.description.slice(0, 160),
+    amount: row.debit ? money(currency, row.debit) : row.credit ? money(currency, row.credit) : row.balance !== null ? money(currency, row.balance) : '—',
+  }));
+  return { summary, keyFields, transactions, status: analysis.kind === 'unknown' ? 'Extracted for review' : 'AI analyzed' };
 }
 
-async function aiEnhance(text: string, filename: string, base: ReturnType<typeof localAnalyze>, instruction?: string) {
-  const apiKey = process.env.OPENAI_API_KEY; const apiBase = process.env.OPENAI_API_BASE || 'https://api.openai.com/v1'; const model = process.env.AI_MODEL || 'gpt-5-mini';
-  if (!apiKey) return { ...base, status: 'Extracted for review' as const };
-  try {
-    const response = await fetch(`${apiBase}/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model, max_completion_tokens: 1800, messages: [{ role: 'system', content: 'You are a careful BKM accounting co-worker. Follow the user instruction, use only supplied data, state assumptions, and never invent figures. Return concise JSON with summary, keyFields (label/value), transactions (date/description/amount), and warnings. For a balance sheet or financial statement request, explain whether the uploaded data is sufficient and show calculated totals only when supported by the data.' }, { role: 'user', content: `User instruction: ${instruction || 'Review and summarize this business document.'}\nFilename: ${filename}\nDocument text and workbook sample:\n${text.slice(0, 60000)}` }], response_format: { type: 'json_schema', json_schema: { name: 'document_scan', strict: true, schema: { type: 'object', properties: { summary: { type: 'string' }, keyFields: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, value: { type: 'string' } }, required: ['label', 'value'], additionalProperties: false } }, transactions: { type: 'array', items: { type: 'object', properties: { date: { type: 'string' }, description: { type: 'string' }, amount: { type: 'string' } }, required: ['date', 'description', 'amount'], additionalProperties: false } }, warnings: { type: 'array', items: { type: 'string' } } }, required: ['summary', 'keyFields', 'transactions', 'warnings'], additionalProperties: false } } } }) });
-    if (!response.ok) return { ...base, status: 'Extracted for review' as const };
-    const payload = await response.json() as { choices?: { message?: { content?: string } }[] }; const raw = payload.choices?.[0]?.message?.content ?? ''; const parsed = JSON.parse(raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim());
-    return { ...base, summary: parsed.summary || base.summary, keyFields: Array.isArray(parsed.keyFields) ? parsed.keyFields.slice(0, 14) : base.keyFields, transactions: Array.isArray(parsed.transactions) ? parsed.transactions.slice(0, 120) : base.transactions, warnings: Array.isArray(parsed.warnings) ? parsed.warnings : base.warnings, status: 'AI analyzed' as const };
-  } catch { return { ...base, status: 'Extracted for review' as const }; }
+export async function scanUploadedDocument(input: {
+  ownerId: string;
+  clientId: string;
+  clientName: string;
+  filename: string;
+  mimeType: string;
+  bytes: Buffer;
+}) {
+  const parsed = await parseDocument(input.filename, input.mimeType, input.bytes);
+  const analysis = analyseDocument(parsed.grid, [...parsed.warnings]);
+  const { summary, keyFields, transactions, status } = summarise(input.filename, analysis, parsed.grid.length);
+
+  const document: StoredDocument = {
+    id: randomUUID(),
+    ownerId: input.ownerId,
+    clientId: input.clientId,
+    clientName: input.clientName,
+    filename: input.filename,
+    size: input.bytes.length,
+    mimeType: input.mimeType,
+    uploadedAt: new Date().toISOString(),
+    status,
+    summary,
+    keyFields,
+    transactions,
+    warnings: analysis.warnings,
+    analysis,
+    extractedText: parsed.text.slice(0, 200000),
+    grid: parsed.grid.slice(0, 4000),
+  };
+
+  recent.set(document.id, document);
+  if (recent.size > 40) { const oldest = Array.from(recent.keys())[0]; if (oldest) recent.delete(oldest); }
+
+  const admin = createSupabaseAdminClient();
+  if (admin) {
+    await admin.from('document_extractions').insert({
+      id: document.id,
+      filename: document.filename,
+      status: document.status,
+      summary: document.summary,
+      extracted_json: {
+        ownerId: document.ownerId,
+        clientId: document.clientId,
+        clientName: document.clientName,
+        size: document.size,
+        mimeType: document.mimeType,
+        uploadedAt: document.uploadedAt,
+        keyFields: document.keyFields,
+        transactions: document.transactions,
+        warnings: document.warnings,
+        analysis: document.analysis,
+        extractedText: document.extractedText,
+        grid: document.grid,
+      },
+    }).then(({ error }: { error: { message: string } | null }) => {
+      if (error && !/relation .* does not exist/i.test(error.message)) console.error('document_extractions insert failed:', error.message);
+    });
+  }
+
+  return document;
 }
 
-export function listUploadedDocuments(clientId?: string) { return uploads.filter((item) => !clientId || item.clientId === clientId).map(({ extractedText: _text, ...item }) => item); }
-export async function scanUploadedDocument(input: { clientId: string; clientName: string; filename: string; mimeType: string; bytes: Buffer; instruction?: string; }) {
-  const extension = input.filename.toLowerCase().split('.').pop(); if (!['csv', 'txt', 'pdf', 'xlsx', 'xls'].includes(extension ?? '')) throw new Error('Upload a PDF, CSV, TXT or Excel workbook.');
-  let text = ''; let workbookMeta: { sheets: string[]; rows: number } | undefined;
-  const tempPath = `/tmp/bkm-upload-${randomUUID()}.${extension}`;
-  try {
-    if (extension === 'pdf') { await writeFile(tempPath, input.bytes); const result = await execFileAsync('pdftotext', [tempPath, '-']); text = result.stdout; }
-    else if (extension === 'xlsx' || extension === 'xls') {
-      const workbook = XLSX.read(input.bytes, { type: 'buffer', cellDates: true, cellNF: false, cellStyles: false });
-      const sheets = workbook.SheetNames;
-      let rows = 0;
-      text = sheets.map((sheetName) => { const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName], { blankrows: false }); rows += Math.max(0, csv.split(/\r?\n/).filter(Boolean).length - 1); return `WORKSHEET: ${sheetName}\n${csv}`; }).join('\n\n');
-      workbookMeta = { sheets, rows };
-    } else text = input.bytes.toString('utf8');
-    const base = localAnalyze(text, input.filename, workbookMeta); const analyzed = await aiEnhance(text, input.filename, base, input.instruction);
-    const document: UploadedDocument = { id: `upload-${randomUUID()}`, clientId: input.clientId, clientName: input.clientName, filename: input.filename, size: input.bytes.length, mimeType: input.mimeType, uploadedAt: new Date().toISOString(), extractedText: text.slice(0, 120000), ...analyzed };
-    uploads.unshift(document); return document;
-  } finally { await unlink(tempPath).catch(() => undefined); }
+function fromRow(row: { id: string; filename: string; status: string; summary: string; created_at: string; extracted_json: Record<string, unknown> }): StoredDocument {
+  const json = row.extracted_json ?? {};
+  return {
+    id: String(row.id),
+    filename: String(row.filename),
+    status: row.status as ScanStatus,
+    summary: String(row.summary),
+    uploadedAt: String(json.uploadedAt ?? row.created_at),
+    size: Number(json.size ?? 0),
+    mimeType: String(json.mimeType ?? ''),
+    clientId: String(json.clientId ?? ''),
+    clientName: String(json.clientName ?? ''),
+    ownerId: String(json.ownerId ?? ''),
+    keyFields: (json.keyFields as DocumentKeyField[]) ?? [],
+    transactions: (json.transactions as UploadedDocument['transactions']) ?? [],
+    warnings: (json.warnings as string[]) ?? [],
+    analysis: (json.analysis as DocumentAnalysis) ?? null,
+    extractedText: String(json.extractedText ?? ''),
+    grid: (json.grid as Grid) ?? [],
+  };
+}
+
+export async function listUploadedDocuments(filter: { ownerId: string; clientId?: string }): Promise<UploadedDocument[]> {
+  const admin = createSupabaseAdminClient();
+  const rows: StoredDocument[] = [];
+  if (admin) {
+    const { data } = await admin.from('document_extractions').select('id, filename, status, summary, created_at, extracted_json').order('created_at', { ascending: false }).limit(200);
+    for (const row of data ?? []) {
+      const item = fromRow(row as never);
+      if (item.ownerId && item.ownerId !== filter.ownerId) continue;
+      rows.push(item);
+    }
+  }
+  for (const item of Array.from(recent.values())) {
+    if (item.ownerId !== filter.ownerId) continue;
+    if (!rows.some((existing) => existing.id === item.id)) rows.unshift(item);
+  }
+  rows.sort((a, b) => (a.uploadedAt < b.uploadedAt ? 1 : -1));
+  return rows
+    .filter((item) => !filter.clientId || item.clientId === filter.clientId)
+    .map(({ extractedText: _text, grid: _grid, ...item }) => item);
+}
+
+/** Full record including the extracted text, for answering a question about it. */
+export async function getUploadedDocument(id: string, ownerId: string): Promise<StoredDocument | null> {
+  const local = recent.get(id);
+  if (local && local.ownerId === ownerId) return local;
+  const admin = createSupabaseAdminClient();
+  if (!admin) return null;
+  const { data } = await admin.from('document_extractions').select('id, filename, status, summary, created_at, extracted_json').eq('id', id).maybeSingle();
+  if (!data) return null;
+  const item = fromRow(data as never);
+  return item.ownerId && item.ownerId !== ownerId ? null : item;
 }

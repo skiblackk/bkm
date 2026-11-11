@@ -9,8 +9,8 @@ export async function GET(request: Request) {
   if (!session) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
   if (!hasPermission(session, 'send_messages')) return NextResponse.json({ error: 'Notification permission is required.' }, { status: 403 });
   const unreadOnly = new URL(request.url).searchParams.get('unread') === 'true';
-  const items = listNotifications(recipientId(session), unreadOnly);
-  return NextResponse.json({ notifications: items, unreadCount: listNotifications(recipientId(session), true).length });
+  const [items, unread] = await Promise.all([listNotifications(recipientId(session), unreadOnly), listNotifications(recipientId(session), true)]);
+  return NextResponse.json({ notifications: items, unreadCount: unread.length });
 }
 
 export async function PATCH(request: Request) {
@@ -20,9 +20,9 @@ export async function PATCH(request: Request) {
   try {
     const input = await request.json() as { notificationId?: string; isRead?: boolean; markAllRead?: boolean };
     const id = recipientId(session);
-    if (input.markAllRead) return NextResponse.json({ notifications: markAllNotificationsRead(id), unreadCount: 0 });
+    if (input.markAllRead) return NextResponse.json({ notifications: await markAllNotificationsRead(id), unreadCount: 0 });
     if (!input.notificationId) return NextResponse.json({ error: 'A notification is required.' }, { status: 400 });
-    const notification = setNotificationRead(input.notificationId, id, input.isRead !== false);
-    return NextResponse.json({ notification, unreadCount: listNotifications(id, true).length });
+    const notification = await setNotificationRead(input.notificationId, id, input.isRead !== false);
+    return NextResponse.json({ notification, unreadCount: (await listNotifications(id, true)).length });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Notification update failed.' }, { status: 403 }); }
 }

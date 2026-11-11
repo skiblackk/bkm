@@ -8,11 +8,7 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p ${PORT:-3000}",
     "typecheck": "tsc --noEmit",
-    "lint": "next lint",
-    "db:migrate": "node scripts/migrate.mjs",
-    "db:seed": "node scripts/seed.mjs",
-    "e2e": "node scripts/e2e.mjs",
-    "accounting:test": "node scripts/accounting-integrity.mjs"
+    "lint": "next lint"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -21,11 +17,11 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "lucide-react": "^0.468.0",
-    "mysql2": "^3.11.5",
     "next": "^15.1.0",
     "pdfkit": "^0.20.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "unpdf": "^2.1.0",
     "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },

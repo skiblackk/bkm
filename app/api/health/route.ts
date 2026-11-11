@@ -5,5 +5,5 @@ export const dynamic = 'force-dynamic';
 
 export function GET() {
   const readiness = productionReadiness();
-  return NextResponse.json({ status: readiness.mode === 'demo' || readiness.realRepositoryConnected ? 'ok' : 'not_ready', service: 'bkm-operations-hub', readiness }, { status: readiness.mode === 'production' && !readiness.realRepositoryConnected ? 503 : 200 });
+  return NextResponse.json({ status: readiness.realRepositoryConnected ? 'ok' : 'not_ready', service: 'bkm-operations-hub', readiness }, { status: readiness.realRepositoryConnected ? 200 : 503 });
 }

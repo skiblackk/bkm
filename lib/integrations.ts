@@ -1,7 +1,7 @@
 import { getRespondIoStatus } from '@/lib/respond-io';
 
 /**
- * Demo integration state.
+ * Integration state.
  *
  * Respond.io is enabled and its active workspace exposes an SMTP Gmail channel.
  * The same workspace currently exposes no WhatsApp or SMS channels. Production should replace this fixture with an

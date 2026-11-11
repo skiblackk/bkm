@@ -1,14 +1,16 @@
 import type { AccountingSnapshot, JournalEntry, JournalLine } from './extended-types';
 
-const accounts = [
-  { id: 'acct-cash', code: '1000', name: 'Cash and bank', type: 'Asset' as const, balance: 0 },
-  { id: 'acct-receivable', code: '1100', name: 'Trade receivables', type: 'Asset' as const, balance: 0 },
-  { id: 'acct-equipment', code: '1500', name: 'Office equipment', type: 'Asset' as const, balance: 0 },
-  { id: 'acct-payable', code: '2000', name: 'Trade payables', type: 'Liability' as const, balance: 0 },
-  { id: 'acct-capital', code: '3000', name: 'Partner capital', type: 'Equity' as const, balance: 0 },
-  { id: 'acct-revenue', code: '4000', name: 'Professional fees', type: 'Revenue' as const, balance: 0 },
-  { id: 'acct-rent', code: '5100', name: 'Office rent', type: 'Expense' as const, balance: 0 },
-  { id: 'acct-payroll', code: '5200', name: 'Staff costs', type: 'Expense' as const, balance: 0 },
+export interface ChartAccount { id: string; code: string; name: string; type: 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense'; balance: number }
+
+const accounts: ChartAccount[] = [
+  { id: 'acct-cash', code: '1000', name: 'Cash and bank', type: 'Asset', balance: 0 },
+  { id: 'acct-receivable', code: '1100', name: 'Trade receivables', type: 'Asset', balance: 0 },
+  { id: 'acct-equipment', code: '1500', name: 'Office equipment', type: 'Asset', balance: 0 },
+  { id: 'acct-payable', code: '2000', name: 'Trade payables', type: 'Liability', balance: 0 },
+  { id: 'acct-capital', code: '3000', name: 'Partner capital', type: 'Equity', balance: 0 },
+  { id: 'acct-revenue', code: '4000', name: 'Professional fees', type: 'Revenue', balance: 0 },
+  { id: 'acct-rent', code: '5100', name: 'Office rent', type: 'Expense', balance: 0 },
+  { id: 'acct-payroll', code: '5200', name: 'Staff costs', type: 'Expense', balance: 0 },
 ];
 
 const journalEntries: JournalEntry[] = [
@@ -23,14 +25,14 @@ const journalEntries: JournalEntry[] = [
 const cents = (value: number) => Math.round(value * 100);
 const isDebitNormal = (type: string) => type === 'Asset' || type === 'Expense';
 
-export function validateJournalEntry(entry: JournalEntry, existingReferences: string[] = []) {
+export function validateJournalEntry(entry: JournalEntry, existingReferences: string[] = [], chart: ChartAccount[] = accounts) {
   if (!entry.id || !entry.reference.trim() || !entry.description.trim()) throw new Error('Journal entries require an id, reference and description.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date) || Number.isNaN(new Date(`${entry.date}T00:00:00Z`).getTime())) throw new Error(`Invalid journal date for ${entry.reference}.`);
   if (existingReferences.includes(entry.reference)) throw new Error(`Duplicate journal reference ${entry.reference} is not allowed.`);
   if (!entry.lines.length) throw new Error(`Journal entry ${entry.reference} must contain at least two lines.`);
   let debits = 0; let credits = 0;
   for (const line of entry.lines) {
-    const account = accounts.find((item) => item.id === line.accountId);
+    const account = chart.find((item) => item.id === line.accountId);
     if (!account) throw new Error(`Unknown account ${line.accountId} in ${entry.reference}.`);
     if (!Number.isFinite(line.debit) || !Number.isFinite(line.credit) || line.debit < 0 || line.credit < 0 || (line.debit > 0 && line.credit > 0)) throw new Error(`Each journal line must contain one non-negative debit or credit amount: ${entry.reference}.`);
     debits += line.debit; credits += line.credit;
@@ -39,15 +41,24 @@ export function validateJournalEntry(entry: JournalEntry, existingReferences: st
   return true;
 }
 
-export function getAccountingSnapshot(options: { periodStart?: string; periodEnd?: string } = {}): AccountingSnapshot {
-  const periodStart = options.periodStart ?? '2026-09-01';
-  const periodEnd = options.periodEnd ?? '2026-09-30';
+/**
+ * Deterministic double-entry computation. Pure over its arguments so the
+ * ledger and the Supabase repository share exactly
+ * one implementation of the accounting math.
+ */
+export function computeAccountingSnapshot(chart: ChartAccount[], entries: JournalEntry[], options: { periodStart?: string; periodEnd?: string } = {}): AccountingSnapshot {
+  const entryDates = entries.map((entry) => entry.date).sort();
+  const now = new Date();
+  const currentMonthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const periodStart = options.periodStart ?? (entryDates[0] || currentMonthStart);
+  const periodEnd = options.periodEnd ?? (entryDates[entryDates.length - 1] || today);
   const references: string[] = [];
-  journalEntries.forEach((entry) => { validateJournalEntry(entry, references); references.push(entry.reference); });
-  const selectedEntries = journalEntries.filter((entry) => (entry.status ?? 'Posted') === 'Posted' && entry.date >= periodStart && entry.date <= periodEnd);
-  const accountBalances = accounts.map((account) => ({ ...account, balance: 0 }));
-  const totals = new Map(accounts.map((account) => [account.id, { debit: 0, credit: 0 }]));
-  const running = new Map(accounts.map((account) => [account.id, 0]));
+  entries.forEach((entry) => { validateJournalEntry(entry, references, chart); references.push(entry.reference); });
+  const selectedEntries = entries.filter((entry) => (entry.status ?? 'Posted') === 'Posted' && entry.date >= periodStart && entry.date <= periodEnd);
+  const accountBalances = chart.map((account) => ({ ...account, balance: 0 }));
+  const totals = new Map(chart.map((account) => [account.id, { debit: 0, credit: 0 }]));
+  const running = new Map(chart.map((account) => [account.id, 0]));
   const ledger: AccountingSnapshot['ledger'] = [];
   for (const entry of selectedEntries) for (const line of entry.lines) {
     const account = accountBalances.find((item) => item.id === line.accountId)!;
@@ -64,7 +75,32 @@ export function getAccountingSnapshot(options: { periodStart?: string; periodEnd
   const liabilities = accountBalances.filter((item) => item.type === 'Liability').reduce((sum, item) => sum + item.balance, 0);
   const capital = accountBalances.filter((item) => item.type === 'Equity').reduce((sum, item) => sum + item.balance, 0);
   const netProfit = revenue - expenses;
-  return { metadata: { firmName: 'BenKim Associates', reportTitle: 'Internal financial statements', periodStart, periodEnd, currency: 'KES', basis: 'Deterministic posted double-entry journal', preparedAt: new Date().toISOString() }, accounts: accountBalances, journalEntries: selectedEntries, ledger, trialBalance, trialBalanceTotals: { debit: totalDebit, credit: totalCredit, difference: totalDebit - totalCredit }, incomeStatement: { revenue, expenses, netProfit }, balanceSheet: { assets, liabilities, equity: capital + netProfit, balanced: Math.abs(assets - (liabilities + capital + netProfit)) < 0.01 }, cashFlow: { operating: 250000 - 95000 - 310000, investing: -180000, financing: 1500000, netChange: 1500000 + 250000 - 95000 - 310000 - 180000 } };
+  // Cash-flow classification derived from the posted journal: entries that move
+  // cash or bank accounts are bucketed by their counter accounts — equity and
+  // borrowings are financing, non-current assets are investing, the rest are
+  // operating. The empty journal therefore reports a genuinely empty statement.
+  const cashIds = new Set(chart.filter((account) => account.type === 'Asset' && /cash|bank/i.test(account.name)).map((account) => account.id));
+  const typeOf = new Map(chart.map((account) => [account.id, account.type] as const));
+  const currentAssetPattern = /receivable|prepaid|inventory|debtor|current|suspense|control/i;
+  const borrowingPattern = /loan|borrow|overdraft|note payable|finance/i;
+  let cfOperating = 0; let cfInvesting = 0; let cfFinancing = 0;
+  for (const entry of selectedEntries) {
+    const cashDelta = entry.lines.filter((line) => cashIds.has(line.accountId)).reduce((sum, line) => sum + line.debit - line.credit, 0);
+    if (cashDelta === 0) continue;
+    const counters = entry.lines.filter((line) => !cashIds.has(line.accountId));
+    const names = counters.map((line) => accountBalances.find((item) => item.id === line.accountId)?.name ?? '');
+    const types = counters.map((line) => typeOf.get(line.accountId));
+    let bucket: 'operating' | 'investing' | 'financing' = 'operating';
+    if (types.includes('Equity') || (types.includes('Liability') && names.some((name) => borrowingPattern.test(name)))) bucket = 'financing';
+    else if (types.includes('Asset') && names.some((name) => !currentAssetPattern.test(name))) bucket = 'investing';
+    if (bucket === 'financing') cfFinancing += cashDelta; else if (bucket === 'investing') cfInvesting += cashDelta; else cfOperating += cashDelta;
+  }
+  const derivedCashFlow = { operating: cfOperating, investing: cfInvesting, financing: cfFinancing, netChange: cfOperating + cfInvesting + cfFinancing };
+  return { metadata: { firmName: 'BenKim Associates', reportTitle: 'Internal financial statements', periodStart, periodEnd, currency: 'KES', basis: 'Deterministic posted double-entry journal', preparedAt: new Date().toISOString() }, accounts: accountBalances, journalEntries: selectedEntries, ledger, trialBalance, trialBalanceTotals: { debit: totalDebit, credit: totalCredit, difference: totalDebit - totalCredit }, incomeStatement: { revenue, expenses, netProfit }, balanceSheet: { assets, liabilities, equity: capital + netProfit, balanced: Math.abs(assets - (liabilities + capital + netProfit)) < 0.01 }, cashFlow: derivedCashFlow };
+}
+
+export function getAccountingSnapshot(options: { periodStart?: string; periodEnd?: string } = {}): AccountingSnapshot {
+  return computeAccountingSnapshot(accounts, journalEntries, options);
 }
 
 export function addJournalEntry(entry: JournalEntry) { validateJournalEntry(entry, journalEntries.map((item) => item.reference)); journalEntries.push({ ...entry, status: entry.status ?? 'Posted' }); return getAccountingSnapshot(); }
@@ -76,3 +112,6 @@ export function reverseJournalEntry(reference: string) {
   entry.status = 'Reversed';
   return getAccountingSnapshot();
 }
+
+
+export type { JournalLine };
