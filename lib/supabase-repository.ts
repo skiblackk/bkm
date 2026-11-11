@@ -3,7 +3,7 @@ import { computeAccountingSnapshot, validateJournalEntry, type ChartAccount } fr
 import { enrichSnapshot, getMetrics } from './repository-metrics';
 import { searchWorkspaceForAssistant, formatWorkspaceAssistantAnswer, type AssistantData, type AssistantSearchResult } from './assistant-search';
 
-import { attendanceStatusFor, businessDate, businessTime, durationMinutesBetween } from './business-clock';
+import { attendanceStatusFor, businessDate, businessTime, durationMinutesBetween, minutesFromClock } from './business-clock';
 import { attendanceSettings as defaultAttendanceSettings } from './attendance-data';
 import type { DemoSnapshot, InternalMessage, Quotation, ReportRecord, TaskPriority, TaskStatus } from './types';
 import type { AccountingSnapshot, AttendanceRecord, DocumentExtraction, JournalEntry, JournalStatus } from './extended-types';
@@ -259,6 +259,18 @@ export async function updateAttendance(staffId: string, action: 'check-in' | 'ch
     if (error) throw new Error(error.message);
   }
   await recordAudit({ actorId: staffId, actorName: staffId, actorRole: 'Team member', action, targetType: 'Attendance', targetId: staffId, detail: `${action} recorded for ${staffId}`, severity: 'info' });
+  // A late check-in alerts the administrator immediately. The alert is idempotent
+  // and fully isolated: a notification problem must never fail or roll back the
+  // attendance record that was just written.
+  if (action === 'check-in') {
+    const { data: settingsRow } = await client.from('attendance_settings').select('reporting_deadline').maybeSingle();
+    const deadline = String(settingsRow?.reporting_deadline ?? '09:30:00').slice(0, 5);
+    const justCheckedIn = clock((await client.from('attendance_records').select('check_in').eq('staff_id', staffId).eq('attendance_date', today).maybeSingle()).data?.check_in as string | null);
+    if (justCheckedIn && minutesFromClock(justCheckedIn) > minutesFromClock(deadline)) {
+      const { notifyLateArrival } = await import('./attendance-alerts');
+      await notifyLateArrival(staffId, today).catch(() => undefined);
+    }
+  }
   return getAttendance();
 }
 

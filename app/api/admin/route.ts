@@ -7,6 +7,7 @@ import { getCommunicationAlerts, getWebhookStatus } from '@/lib/communication-we
 import { getIntegrationStatus } from '@/lib/integrations';
 import { decideAiTriage, getAiTriageItems } from '@/lib/ai-triage';
 import { businessDate } from '@/lib/business-clock';
+import { getAttendanceCompliance, listAttendanceAlerts, runMissingCheckInSweep } from '@/lib/attendance-alerts';
 import { hasSupabaseConfiguration } from '@/lib/runtime-mode';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 
@@ -34,7 +35,11 @@ export async function GET() {
   const todayKey = businessDate();
   const missing = attendance.records.filter((record) => record.date === todayKey && record.status === 'Not Checked In').map((record) => snapshot.staff.find((member) => member.id === record.staffId)?.name ?? record.staffId);
   const communicationAlerts = getCommunicationAlerts();
-  return NextResponse.json({ snapshot, attendance, missing, accounting: await getAccounting(), document: await getDocumentIntelligence(), messages: await getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: await listWorkspaceUsers(), audit: await getAuditEvents(), environment: { mode: 'production', today: todayKey } });
+  // Company-wide attendance compliance is only assembled for callers who are
+  // allowed to see it; everyone else gets the payload without it.
+  const canSeeCompliance = session.isAdmin || hasPermission(session, 'view_team_attendance') || hasPermission(session, 'manage_attendance');
+  const compliance = canSeeCompliance ? await getAttendanceCompliance(todayKey).catch(() => null) : null;
+  return NextResponse.json({ snapshot, attendance, missing, compliance, attendanceAlerts: canSeeCompliance ? await listAttendanceAlerts().catch(() => []) : [], accounting: await getAccounting(), document: await getDocumentIntelligence(), messages: await getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: await listWorkspaceUsers(), audit: await getAuditEvents(), environment: { mode: 'production', today: todayKey } });
   } catch (error) {
     const status = error instanceof PermissionError ? error.status : 500;
     return NextResponse.json({ error: error instanceof Error ? error.message : 'The admin workspace could not be loaded.' }, { status });
@@ -144,6 +149,12 @@ export async function POST(request: Request) {
       requireActionPermission(session, 'view_audit_logs');
       return NextResponse.json({ audit: await getAuditEvents({ actorId: input.actorId, action: input.filterAction }) });
     }
+    if (input.action === 'run-attendance-sweep') {
+      requireActionPermission(session, 'manage_attendance');
+      const result = await runMissingCheckInSweep();
+      return NextResponse.json({ message: `Attendance sweep complete: ${result.created} alert(s) created, ${result.skipped} already sent.`, result });
+    }
+
     if (input.action === 'approve-document') {
       requireActionPermission(session, 'approve_documents');
       return NextResponse.json({ document: await approveDocument() });
