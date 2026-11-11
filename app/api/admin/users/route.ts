@@ -17,6 +17,21 @@ export async function POST(request: Request) {
   const session = await getDemoSession();
   if (!session?.isAdmin) return NextResponse.json({ error: 'Administrator access is required.' }, { status: 403 });
   const body = await request.json().catch(() => ({}));
+  const action = String(body.action ?? 'invite');
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return NextResponse.json({ error: 'Supabase Auth is not configured.' }, { status: 503 });
+
+  if (action === 'set-active') {
+    const userId = String(body.userId ?? '');
+    const active = body.active === true;
+    if (!userId) return NextResponse.json({ error: 'A user is required.' }, { status: 400 });
+    if (userId === session.account && !active) return NextResponse.json({ error: 'You cannot deactivate your own administrator account.' }, { status: 400 });
+    const { data, error } = await supabase.from('profiles').update({ active, updated_at: new Date().toISOString() }).eq('id', userId).select('id, full_name, email, initials, is_admin, active, roles(name)').maybeSingle();
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (!data) return NextResponse.json({ error: 'User profile not found.' }, { status: 404 });
+    return NextResponse.json({ user: data, message: active ? 'User access approved.' : 'User access suspended.' });
+  }
+
   const email = String(body.email ?? '').trim().toLowerCase();
   const fullName = String(body.fullName ?? '').trim();
   const makeAdmin = body.makeAdmin === true;
@@ -28,7 +43,7 @@ export async function POST(request: Request) {
   const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo: `${new URL(request.url).origin}/auth/callback` });
   if (inviteError || !invited.user) return NextResponse.json({ error: inviteError?.message ?? 'Unable to invite the user.' }, { status: 400 });
   const initials = fullName.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
-  const { error: profileError } = await admin.from('profiles').insert({ id: invited.user.id, role_id: role.id, full_name: fullName, email, initials, is_admin: makeAdmin, active: true, is_demo: false });
+  const { error: profileError } = await admin.from('profiles').upsert({ id: invited.user.id, role_id: role.id, full_name: fullName, email, initials, is_admin: makeAdmin, active: true, is_demo: false, updated_at: new Date().toISOString() }, { onConflict: 'id' });
   if (profileError) return NextResponse.json({ error: `User invited, but profile creation failed: ${profileError.message}` }, { status: 500 });
   return NextResponse.json({ user: { id: invited.user.id, email, fullName, role: role.name, isAdmin: makeAdmin }, message: 'Invitation sent. The user must establish their own password from the email.' }, { status: 201 });
 }

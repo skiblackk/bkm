@@ -1,5 +1,6 @@
-export const isProductionDataMode = process.env.NODE_ENV === 'production' || process.env.BKM_REQUIRE_REAL_AUTH === 'true';
-export const hasSupabaseConfiguration = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+const supabaseConfiguration = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+export const isProductionDataMode = process.env.NODE_ENV === 'production' || process.env.BKM_REQUIRE_REAL_AUTH === 'true' || supabaseConfiguration;
+export const hasSupabaseConfiguration = supabaseConfiguration;
 export const hasDatabaseConfiguration = Boolean(process.env.DATABASE_URL || hasSupabaseConfiguration);
 
 export function assertRealDataReady() {
