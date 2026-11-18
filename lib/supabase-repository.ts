@@ -60,7 +60,9 @@ interface SnapshotRows {
 
 let cachedRows: SnapshotRows | null = null;
 let cachedAt = 0;
-const CACHE_MS = 4000;
+// Short cache: a stale read here means a user can save a change and still be
+// shown the previous value. Writes invalidate it explicitly below.
+const CACHE_MS = 1500;
 
 async function fetchSnapshotRows(): Promise<SnapshotRows> {
   const client = db();
@@ -97,9 +99,15 @@ async function ensureRows(): Promise<SnapshotRows> {
 }
 
 async function refreshRows(): Promise<SnapshotRows> {
-  cachedRows = await fetchSnapshotRows();
+  // Drop the cache first: otherwise a concurrent request can restore the
+  // pre-write snapshot between the update and this fetch, and the caller then
+  // returns stale data while the database already holds the new values.
+  cachedRows = null;
+  cachedAt = 0;
+  const rows = await fetchSnapshotRows();
+  cachedRows = rows;
   cachedAt = Date.now();
-  return cachedRows;
+  return rows;
 }
 
 function assembleSnapshot(rows: SnapshotRows): DemoSnapshot {
