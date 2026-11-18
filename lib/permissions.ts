@@ -40,6 +40,19 @@ export class PermissionError extends Error {
   constructor(message: string, status = 403) { super(message); this.status = status; }
 }
 
+/**
+ * Narrow a caught value to a PermissionError so route handlers can return the
+ * status the authorisation layer decided on (401 / 403) instead of a blanket 400.
+ */
+export function isPermissionError(error: unknown): error is PermissionError {
+  if (error instanceof PermissionError) return true;
+  if (typeof error !== 'object' || error === null) return false;
+  const candidate = error as { status?: unknown; message?: unknown };
+  return typeof candidate.status === 'number'
+    && typeof candidate.message === 'string'
+    && /sign in is required|permission required/i.test(candidate.message);
+}
+
 const CATALOGUE_KEYS: ReadonlySet<string> = new Set(PERMISSION_CATALOGUE.map((entry) => entry.key));
 
 /** Reject anything not in the catalogue. Used for every admin-supplied key list. */

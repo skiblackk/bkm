@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listUploadedDocuments, scanUploadedDocument } from '@/lib/uploaded-documents';
+import { deleteUploadedDocument, listUploadedDocuments, scanUploadedDocument } from '@/lib/uploaded-documents';
 import { getDemoSession, requirePermission } from '@/lib/auth';
 
 export const runtime = 'nodejs';
@@ -40,6 +40,35 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Document scan failed.';
     const status = /sign in|permission|authorized|denied/i.test(message) ? 403 : /required|choose|format|unsupported|larger|size|Upload a/i.test(message) ? 400 : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+/**
+ * Delete an uploaded document.
+ * Ownership is enforced server-side: administrators may delete any upload,
+ * everyone else only files they uploaded themselves.
+ */
+export async function DELETE(request: Request) {
+  try {
+    const session = await requirePermission('manage_documents');
+    const id = new URL(request.url).searchParams.get('id') ?? '';
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return NextResponse.json({ error: 'Choose a document to delete.' }, { status: 400 });
+    }
+    await deleteUploadedDocument(id, {
+      id: session.staffId ?? session.account,
+      name: session.name,
+      role: session.role,
+      isAdmin: session.isAdmin,
+    });
+    return NextResponse.json({ deleted: id });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'The document could not be deleted.';
+    const status = /sign in|permission|denied|only delete/i.test(message) ? 403
+      : /not found/i.test(message) ? 404
+      : /choose a document/i.test(message) ? 400
+      : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

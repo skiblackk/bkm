@@ -103,9 +103,27 @@ export async function getAuditEvents(filters?: { actorId?: string; action?: stri
   return production.getAuditEvents(filters);
 }
 
-export async function createClient(input: { name: string; industry: string; location: string; contactName: string; contactEmail: string; contactPhone?: string; services?: string[]; description?: string }) {
+export type ClientActor = { id: string; name: string; role: string };
+
+export async function createClient(
+  input: { name: string; industry: string; location: string; contactName: string; contactEmail: string; contactPhone?: string; services?: string[]; description?: string },
+  actor?: ClientActor,
+) {
   assertRepositoryReady();
-  return production.createClient(input);
+  return production.createClient(input, actor);
+}
+
+export async function updateClient(
+  clientId: string,
+  patch: {
+    name?: string; industry?: string; location?: string; description?: string;
+    status?: 'Active' | 'On hold' | 'Archived';
+    contactName?: string; contactEmail?: string; contactPhone?: string;
+  },
+  actor?: ClientActor,
+) {
+  assertRepositoryReady();
+  return production.updateClient(clientId, patch, actor);
 }
 
 export async function updateTask(taskId: string, patch: { status?: TaskStatus; assignedTo?: string }) {

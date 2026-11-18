@@ -123,8 +123,14 @@ export async function scanUploadedDocument(input: {
         extractedText: document.extractedText,
         grid: document.grid,
       },
-    }).then(({ error }: { error: { message: string } | null }) => {
+    }).then(async ({ error }: { error: { message: string } | null }) => {
       if (error && !/relation .* does not exist/i.test(error.message)) console.error('document_extractions insert failed:', error.message);
+      if (!error && document.clientId && document.clientId !== 'unassigned') {
+        // Keep clients.document_count truthful so the record header matches the
+        // evidence actually stored against the client.
+        const counted = await admin.rpc('bkm_refresh_client_document_count', { p_client_id: document.clientId });
+        if (counted.error) console.error('document count refresh failed:', counted.error.message);
+      }
     });
   }
 
@@ -172,6 +178,32 @@ export async function listUploadedDocuments(filter: { ownerId: string; clientId?
   return rows
     .filter((item) => !filter.clientId || item.clientId === filter.clientId)
     .map(({ extractedText: _text, grid: _grid, ...item }) => item);
+}
+
+/**
+ * Remove an uploaded document.
+ *
+ * There was previously no way to delete a wrongly uploaded file: it stayed on
+ * the client record permanently. Deletion runs through bkm_delete_uploaded_document()
+ * so ownership is checked server-side, an audit entry is written, and the
+ * client's document count is refreshed in the same transaction. Administrators
+ * may remove any upload; everyone else only their own.
+ */
+export async function deleteUploadedDocument(
+  id: string,
+  actor: { id: string; name: string; role: string; isAdmin: boolean },
+): Promise<void> {
+  const admin = createSupabaseAdminClient();
+  if (!admin) throw new Error('Document storage is not configured.');
+  recent.delete(id);
+  const { error } = await admin.rpc('bkm_delete_uploaded_document', {
+    p_actor_id: actor.id,
+    p_actor_name: actor.name,
+    p_actor_role: actor.role,
+    p_document_id: id,
+    p_is_admin: actor.isAdmin,
+  });
+  if (error) throw new Error(error.message);
 }
 
 /** Full record including the extracted text, for answering a question about it. */

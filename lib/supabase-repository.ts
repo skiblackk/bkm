@@ -533,33 +533,74 @@ export async function getAuditEvents(filters?: { actorId?: string; action?: stri
   return (data ?? []).map((row) => ({ id: String(row.id), actorId: String(row.actor_id), actorName: String(row.actor_name), actorRole: String(row.actor_role), action: String(row.action), targetType: String(row.target_type), targetId: row.target_id ? String(row.target_id) : undefined, detail: String(row.detail), timestamp: String(row.created_at), severity: row.severity as AuditEvent['severity'] }));
 }
 
-export async function createClient(input: { name: string; industry: string; location: string; contactName: string; contactEmail: string; contactPhone?: string; services?: string[]; description?: string }) {
+/**
+ * Client creation.
+ *
+ * The insert used to be a sequence of independent statements, the last of which
+ * (the audit write) failed on a non-uuid actor id. The client and its contact
+ * had already committed by then, so the caller was told the save failed while
+ * the record existed. Everything now runs inside bkm_create_client() so the
+ * whole record lands or nothing does, and the real actor is recorded.
+ */
+export async function createClient(
+  input: { name: string; industry: string; location: string; contactName: string; contactEmail: string; contactPhone?: string; services?: string[]; description?: string },
+  actor?: { id: string; name: string; role: string },
+) {
   const name = input.name.trim();
-  if (!name || !input.industry.trim() || !input.location.trim() || !input.contactName.trim() || !input.contactEmail.trim()) throw new Error('Name, industry, location, contact name and contact email are required.');
-  const rows = await ensureRows();
-  const normalizedName = name.toLowerCase().replace(/\s+/g, ' ');
-  const normalizedEmail = input.contactEmail.trim().toLowerCase();
-  if (rows.clients.some((client) => String(client.name).toLowerCase().replace(/\s+/g, ' ') === normalizedName)) throw new Error('A client with this name already exists. Open the existing record instead of creating a duplicate.');
-  if (rows.contacts.some((contact) => String(contact.email).trim().toLowerCase() === normalizedEmail)) throw new Error('A client contact with this email already exists. Check the existing client record before continuing.');
+  if (!name || !input.industry.trim() || !input.location.trim() || !input.contactName.trim() || !input.contactEmail.trim()) {
+    throw new Error('Name, industry, location, contact name and contact email are required.');
+  }
   const client = db();
-  const { data: manager } = await client.from('profiles').select('id').eq('is_admin', false).order('created_at', { ascending: true }).limit(1).maybeSingle();
-  const { data: created, error } = await client.from('clients').insert({
-    name,
-    industry: input.industry.trim(),
-    status: 'Active',
-    location: input.location.trim(),
-    description: input.description?.trim() || 'New client record created in BKM Operations Hub.',
-    primary_manager_id: manager?.id ?? null,
-    services: input.services?.length ? input.services : ['Audit & Assurance'],
-    last_activity: 'Just now',
-    document_count: 0,
-    outstanding_requests: 0,
-  }).select('id').single();
+  // Assign the acting manager when no explicit manager was supplied.
+  const managerId = actor?.id ?? null;
+  const { data, error } = await client.rpc('bkm_create_client', {
+    p_actor_id: actor?.id ?? null,
+    p_actor_name: actor?.name ?? 'Workspace user',
+    p_actor_role: actor?.role ?? 'Staff',
+    p_name: name,
+    p_industry: input.industry.trim(),
+    p_location: input.location.trim(),
+    p_contact_name: input.contactName.trim(),
+    p_contact_email: input.contactEmail.trim(),
+    p_contact_phone: input.contactPhone?.trim() ?? '',
+    p_description: input.description?.trim() ?? null,
+    p_manager_id: managerId,
+  });
   if (error) throw new Error(error.message);
-  const { error: contactError } = await client.from('client_contacts').insert({ client_id: created.id, full_name: input.contactName.trim(), email: input.contactEmail.trim(), phone: input.contactPhone?.trim() || '', is_primary: true });
-  if (contactError) throw new Error(contactError.message);
-  await client.from('activity_logs').insert({ event_type: 'Client created', description: `${name} was added to the client portfolio`, actor_name: 'Benjamin Mutua', record_type: 'Client', record_id: String(created.id) });
-  await recordAudit({ actorId: 'benjamin', actorName: 'Benjamin Mutua', actorRole: 'System Administrator', action: 'create_client', targetType: 'Client', targetId: String(created.id), detail: `Created client ${name}`, severity: 'change' });
+  if (!data) throw new Error('The client record could not be created.');
+  await refreshRows();
+  return getSnapshot();
+}
+
+/**
+ * Edit a client, move it between statuses, or archive it.
+ * All of it happens inside bkm_update_client() for the same reason as above.
+ */
+export async function updateClient(
+  clientId: string,
+  patch: {
+    name?: string; industry?: string; location?: string; description?: string;
+    status?: 'Active' | 'On hold' | 'Archived';
+    contactName?: string; contactEmail?: string; contactPhone?: string;
+  },
+  actor?: { id: string; name: string; role: string },
+) {
+  const client = db();
+  const { error } = await client.rpc('bkm_update_client', {
+    p_actor_id: actor?.id ?? null,
+    p_actor_name: actor?.name ?? 'Workspace user',
+    p_actor_role: actor?.role ?? 'Staff',
+    p_client_id: clientId,
+    p_name: patch.name ?? null,
+    p_industry: patch.industry ?? null,
+    p_location: patch.location ?? null,
+    p_description: patch.description ?? null,
+    p_status: patch.status ?? null,
+    p_contact_name: patch.contactName ?? null,
+    p_contact_email: patch.contactEmail ?? null,
+    p_contact_phone: patch.contactPhone ?? null,
+  });
+  if (error) throw new Error(error.message);
   await refreshRows();
   return getSnapshot();
 }
