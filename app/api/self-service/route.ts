@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDemoSession, hasPermission } from '@/lib/auth';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { recordAudit } from '@/lib/data-access';
+import { notifyLeaveSubmitted } from '@/lib/leave-notifications';
 import { isPermissionKey } from '@/lib/permission-catalogue';
 
 function db() {
@@ -39,10 +40,14 @@ export async function POST(request: Request) {
       if (!hasPermission(session, 'request_leave')) return NextResponse.json({ error: 'Permission required: request_leave.' }, { status: 403 });
       const startsOn = String(input.startsOn ?? ''); const endsOn = String(input.endsOn ?? '');
       if (!startsOn || !endsOn || endsOn < startsOn) return NextResponse.json({ error: 'A valid date range is required.' }, { status: 400 });
-      const { data: created, error } = await admin.from('leave_requests').insert({ user_id: session.account, leave_type: String(input.leaveType ?? 'annual').slice(0, 50), starts_on: startsOn, ends_on: endsOn, reason: String(input.reason ?? '').slice(0, 1000) }).select('*').single();
+      const leaveType = String(input.leaveType ?? 'annual').slice(0, 50);
+      const { data: created, error } = await admin.from('leave_requests').insert({ user_id: session.account, leave_type: leaveType, starts_on: startsOn, ends_on: endsOn, reason: String(input.reason ?? '').slice(0, 1000) }).select('*').single();
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
       await recordAudit({ actorId: session.account, actorName: session.name, actorRole: session.role, action: 'leave_requested', targetType: 'LeaveRequest', targetId: created.id, detail: `Leave requested ${startsOn} → ${endsOn}`, severity: 'info' });
-      return NextResponse.json({ ok: true });
+      // This form wrote the request and told nobody, which is why requests made
+      // from "My workspace" also failed to appear to an administrator.
+      const notified = await notifyLeaveSubmitted({ requesterId: session.account, requesterName: session.name, leaveType, startsOn, endsOn, requestId: created.id });
+      return NextResponse.json({ ok: true, notified });
     }
     if (input.action === 'cancel-leave') {
       const { data: row } = await admin.from('leave_requests').select('*').eq('id', String(input.id ?? '')).maybeSingle();

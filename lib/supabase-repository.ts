@@ -56,6 +56,7 @@ type Row = Record<string, unknown>;
 interface SnapshotRows {
   profiles: ProfileRow[]; clients: Row[]; contacts: Row[]; engagements: Row[]; members: Row[];
   tasks: Row[]; documents: Row[]; quotations: Row[]; items: Row[]; reports: Row[]; activities: Row[];
+  charges: Row[]; payments: Row[]; receipts: Row[];
 }
 
 let cachedRows: SnapshotRows | null = null;
@@ -64,9 +65,27 @@ let cachedAt = 0;
 // shown the previous value. Writes invalidate it explicitly below.
 const CACHE_MS = 1500;
 
+/**
+ * Read a table that may not exist yet.
+ *
+ * Migrations are applied by hand on this project, so application code can
+ * briefly run ahead of the schema. A missing table must not take the whole
+ * workspace down with it: the register still loads, and only the new billing
+ * panel is empty.
+ */
+async function optionalRows(client: ReturnType<typeof db>, table: string): Promise<{ data: Row[] | null; error: null }> {
+  const { data, error } = await client.from(table).select('*');
+  if (error) {
+    const missing = error.code === '42P01' || /does not exist/i.test(error.message);
+    if (!missing) console.error(`Optional read failed for ${table}:`, error.message);
+    return { data: [], error: null };
+  }
+  return { data: (data ?? []) as Row[], error: null };
+}
+
 async function fetchSnapshotRows(): Promise<SnapshotRows> {
   const client = db();
-  const [profiles, clients, contacts, engagements, members, tasks, documents, quotations, items, reports, activities] = await Promise.all([
+  const [profiles, clients, contacts, engagements, members, tasks, documents, quotations, items, reports, activities, charges, payments, receipts] = await Promise.all([
     client.from('profiles').select('id, full_name, email, initials, is_admin, active, color, availability, roles(name)').eq('active', true).order('created_at', { ascending: true }),
     client.from('clients').select('*').order('created_at', { ascending: true }),
     client.from('client_contacts').select('*'),
@@ -78,8 +97,14 @@ async function fetchSnapshotRows(): Promise<SnapshotRows> {
     client.from('quotation_items').select('*'),
     client.from('reports').select('*').order('created_at', { ascending: true }),
     client.from('activity_logs').select('*').order('created_at', { ascending: false }),
+    // Billing tables were added in migration 016. Read them through a helper so
+    // a deployment that has not run the migration yet serves the register
+    // instead of failing the whole snapshot.
+    optionalRows(client, 'client_service_charges'),
+    optionalRows(client, 'client_payments'),
+    optionalRows(client, 'client_receipts'),
   ]);
-  for (const result of [profiles, clients, contacts, engagements, members, tasks, documents, quotations, items, reports, activities]) {
+  for (const result of [profiles, clients, contacts, engagements, members, tasks, documents, quotations, items, reports, activities, charges, payments, receipts]) {
     if (result.error) throw new Error(`Production repository read failed: ${result.error.message}`);
   }
   return {
@@ -87,6 +112,7 @@ async function fetchSnapshotRows(): Promise<SnapshotRows> {
     clients: clients.data ?? [], contacts: contacts.data ?? [], engagements: engagements.data ?? [], members: members.data ?? [],
     tasks: tasks.data ?? [], documents: documents.data ?? [], quotations: quotations.data ?? [], items: items.data ?? [],
     reports: reports.data ?? [], activities: activities.data ?? [],
+    charges: charges.data ?? [], payments: payments.data ?? [], receipts: receipts.data ?? [],
   };
 }
 
@@ -145,6 +171,48 @@ function assembleSnapshot(rows: SnapshotRows): DemoSnapshot {
       outstandingRequests: Number(client.outstanding_requests ?? 0),
       lastActivity: String(client.last_activity ?? 'Just now'),
       description: String(client.description ?? ''),
+      relationship: client.relationship_type === 'vendor' ? 'vendor' : 'serviced',
+      logoUrl: String(client.logo_url ?? ''),
+      serviceCharges: rows.charges
+        .filter((charge) => charge.client_id === client.id)
+        .map((charge) => ({
+          id: String(charge.id),
+          clientId: String(charge.client_id),
+          serviceName: String(charge.service_name ?? ''),
+          description: String(charge.description ?? ''),
+          direction: charge.direction === 'receivable' ? 'receivable' : 'payable',
+          amount: Number(charge.amount ?? 0),
+          currency: String(charge.currency ?? 'KES'),
+          billingFrequency: (charge.billing_frequency ?? 'monthly') as DemoSnapshot['clients'][number]['serviceCharges'][number]['billingFrequency'],
+          status: (charge.status ?? 'Active') as 'Active' | 'Paused' | 'Ended',
+          effectiveFrom: String(charge.effective_from ?? ''),
+        })),
+      payments: rows.payments
+        .filter((payment) => payment.client_id === client.id)
+        .map((payment) => ({
+          id: String(payment.id),
+          clientId: String(payment.client_id),
+          chargeId: payment.charge_id ? String(payment.charge_id) : null,
+          amount: Number(payment.amount ?? 0),
+          currency: String(payment.currency ?? 'KES'),
+          paidOn: String(payment.paid_on ?? ''),
+          method: String(payment.method ?? ''),
+          reference: String(payment.reference ?? ''),
+          notes: String(payment.notes ?? ''),
+        })),
+      receipts: rows.receipts
+        .filter((receipt) => receipt.client_id === client.id)
+        .map((receipt) => ({
+          id: String(receipt.id),
+          receiptNumber: String(receipt.receipt_number ?? ''),
+          paymentId: String(receipt.payment_id),
+          clientId: String(receipt.client_id),
+          amount: Number(receipt.amount ?? 0),
+          currency: String(receipt.currency ?? 'KES'),
+          issuedOn: String(receipt.issued_on ?? ''),
+          issuedByName: String(receipt.issued_by_name ?? ''),
+          notes: String(receipt.notes ?? ''),
+        })),
     };
   });
   const engagements: DemoSnapshot['engagements'] = rows.engagements.map((engagement) => ({
@@ -611,6 +679,140 @@ export async function updateClient(
   if (error) throw new Error(error.message);
   await refreshRows();
   return getSnapshot();
+}
+
+/**
+ * Record that an organisation is serviced by BKM or paid by BKM.
+ *
+ * Kept separate from updateClient so the established edit path is untouched.
+ */
+export async function setClientRelationship(
+  clientId: string,
+  relationship: 'serviced' | 'vendor',
+  actor?: { id: string; name: string; role: string },
+) {
+  const client = db();
+  const { error } = await client.rpc('bkm_set_client_relationship', {
+    p_actor_id: actor?.id ?? null,
+    p_actor_name: actor?.name ?? 'Workspace user',
+    p_actor_role: actor?.role ?? 'Staff',
+    p_client_id: clientId,
+    p_relationship_type: relationship,
+  });
+  if (error) throw new Error(error.message);
+  await refreshRows();
+  return getSnapshot();
+}
+
+/** Attach or clear a client logo. Pass null to remove it. */
+export async function setClientLogo(
+  clientId: string,
+  logoUrl: string | null,
+  actor?: { id: string; name: string; role: string },
+) {
+  const client = db();
+  const { error } = await client.rpc('bkm_set_client_logo', {
+    p_actor_id: actor?.id ?? null,
+    p_actor_name: actor?.name ?? 'Workspace user',
+    p_actor_role: actor?.role ?? 'Staff',
+    p_client_id: clientId,
+    p_logo_url: logoUrl,
+  });
+  if (error) throw new Error(error.message);
+  await refreshRows();
+  return getSnapshot();
+}
+
+/** Agree a service and its amount, in either direction. */
+export async function addServiceCharge(
+  input: {
+    clientId: string; serviceName: string; description?: string;
+    direction: 'payable' | 'receivable'; amount: number; currency?: string;
+    billingFrequency?: string; effectiveFrom?: string;
+  },
+  actor?: { id: string; name: string; role: string },
+) {
+  const client = db();
+  const { error } = await client.rpc('bkm_add_service_charge', {
+    p_actor_id: actor?.id ?? null,
+    p_actor_name: actor?.name ?? 'Workspace user',
+    p_actor_role: actor?.role ?? 'Staff',
+    p_client_id: input.clientId,
+    p_service_name: input.serviceName,
+    p_description: input.description ?? '',
+    p_direction: input.direction,
+    p_amount: input.amount,
+    p_currency: input.currency ?? 'KES',
+    p_billing_frequency: input.billingFrequency ?? 'monthly',
+    p_effective_from: input.effectiveFrom ?? new Date().toISOString().slice(0, 10),
+  });
+  if (error) throw new Error(error.message);
+  await refreshRows();
+  return getSnapshot();
+}
+
+/** Record money that actually moved. */
+export async function recordClientPayment(
+  input: {
+    clientId: string; chargeId?: string | null; amount: number; currency?: string;
+    paidOn?: string; method?: string; reference?: string; notes?: string;
+  },
+  actor?: { id: string; name: string; role: string },
+) {
+  const client = db();
+  const { error } = await client.rpc('bkm_record_client_payment', {
+    p_actor_id: actor?.id ?? null,
+    p_actor_name: actor?.name ?? 'Workspace user',
+    p_actor_role: actor?.role ?? 'Staff',
+    p_client_id: input.clientId,
+    p_charge_id: input.chargeId || null,
+    p_amount: input.amount,
+    p_currency: input.currency ?? 'KES',
+    p_paid_on: input.paidOn ?? new Date().toISOString().slice(0, 10),
+    p_method: input.method ?? 'Bank transfer',
+    p_reference: input.reference ?? '',
+    p_notes: input.notes ?? '',
+  });
+  if (error) throw new Error(error.message);
+  await refreshRows();
+  return getSnapshot();
+}
+
+/**
+ * Issue (or re-open) the receipt for a payment.
+ *
+ * The function is idempotent: asking twice returns the same numbered receipt
+ * rather than burning a second number.
+ */
+export async function issueReceipt(paymentId: string, notes: string, actor?: { id: string; name: string; role: string }) {
+  const client = db();
+  const { data, error } = await client.rpc('bkm_issue_receipt', {
+    p_actor_id: actor?.id ?? null,
+    p_actor_name: actor?.name ?? 'Workspace user',
+    p_actor_role: actor?.role ?? 'Staff',
+    p_payment_id: paymentId,
+    p_notes: notes,
+  });
+  if (error) throw new Error(error.message);
+  await refreshRows();
+  const receipt = (data ?? null) as Row | null;
+  const snapshot = await getSnapshot();
+  return {
+    snapshot,
+    receipt: receipt
+      ? {
+          id: String(receipt.id),
+          receiptNumber: String(receipt.receipt_number),
+          paymentId: String(receipt.payment_id),
+          clientId: String(receipt.client_id),
+          amount: Number(receipt.amount),
+          currency: String(receipt.currency),
+          issuedOn: String(receipt.issued_on),
+          issuedByName: String(receipt.issued_by_name ?? ''),
+          notes: String(receipt.notes ?? ''),
+        }
+      : null,
+  };
 }
 
 export async function updateTask(taskId: string, patch: { status?: TaskStatus; assignedTo?: string }) {

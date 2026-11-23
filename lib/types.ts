@@ -19,6 +19,60 @@ export interface StaffMember {
   permissions?: string[];
 }
 
+/**
+ * How BKM stands in relation to the organisation.
+ *
+ * 'serviced' — BKM delivers work to them and bills them.
+ * 'vendor'   — they supply BKM, and BKM pays them. They still live in the same
+ *              register so contacts, documents and history stay in one place,
+ *              but the money flows the other way, so the record says so
+ *              explicitly instead of leaving it to be inferred.
+ */
+export type ClientRelationship = 'serviced' | 'vendor';
+
+export type ChargeDirection = 'payable' | 'receivable';
+export type BillingFrequency = 'one-off' | 'weekly' | 'monthly' | 'quarterly' | 'annual';
+
+/** What is being paid for, and how much. */
+export interface ServiceCharge {
+  id: string;
+  clientId: string;
+  serviceName: string;
+  description: string;
+  direction: ChargeDirection;
+  amount: number;
+  currency: string;
+  billingFrequency: BillingFrequency;
+  status: 'Active' | 'Paused' | 'Ended';
+  effectiveFrom: string;
+}
+
+/** Money that actually moved against a charge. */
+export interface ClientPayment {
+  id: string;
+  clientId: string;
+  chargeId: string | null;
+  amount: number;
+  currency: string;
+  paidOn: string;
+  method: string;
+  reference: string;
+  notes: string;
+}
+
+/** A numbered receipt issued for one payment. */
+export interface ClientReceipt {
+  id: string;
+  receiptNumber: string;
+  paymentId: string;
+  clientId: string;
+  amount: number;
+  currency: string;
+  issuedOn: string;
+  issuedByName: string;
+  notes: string;
+}
+
 export interface Client {
   id: string;
   name: string;
@@ -35,6 +89,11 @@ export interface Client {
   outstandingRequests: number;
   lastActivity: string;
   description: string;
+  relationship: ClientRelationship;
+  logoUrl: string;
+  serviceCharges: ServiceCharge[];
+  payments: ClientPayment[];
+  receipts: ClientReceipt[];
 }
 
 export interface Engagement {

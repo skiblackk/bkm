@@ -25,6 +25,48 @@ function requireActionPermission(session: DemoSession, ...permissions: string[])
   return session;
 }
 
+/**
+ * The leave queue an administrator needs to act on.
+ *
+ * Leave requests were being written to the database from two different forms
+ * and surfaced on no administrative screen at all, so a submitted request
+ * looked to the staff member like it had vanished. This is the read side of
+ * that gap; the dashboard panel renders it.
+ */
+async function loadLeaveQueue(session: DemoSession) {
+  const canSee = session.isAdmin || hasPermission(session, 'approve_leave') || hasPermission(session, 'manage_leave') || hasPermission(session, 'view_team_attendance');
+  if (!canSee) return { requests: [], canDecide: false };
+  const admin = createSupabaseAdminClient();
+  if (!admin) return { requests: [], canDecide: false };
+  const { data, error } = await admin
+    .from('leave_requests')
+    .select('id, user_id, leave_type, starts_on, ends_on, reason, status, decision_note, decided_at, created_at')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) return { requests: [], canDecide: false };
+  const ids = Array.from(new Set((data ?? []).map((row) => String(row.user_id))));
+  const names = new Map<string, string>();
+  if (ids.length) {
+    const { data: profiles } = await admin.from('profiles').select('id, full_name, email').in('id', ids);
+    for (const profile of profiles ?? []) names.set(String(profile.id), String(profile.full_name ?? profile.email ?? 'Staff member'));
+  }
+  return {
+    requests: (data ?? []).map((row) => ({
+      id: String(row.id),
+      userId: String(row.user_id),
+      requesterName: names.get(String(row.user_id)) ?? 'Staff member',
+      leaveType: String(row.leave_type),
+      startsOn: String(row.starts_on),
+      endsOn: String(row.ends_on),
+      reason: String(row.reason ?? ''),
+      status: String(row.status),
+      decidedAt: row.decided_at ? String(row.decided_at) : null,
+      createdAt: String(row.created_at),
+    })),
+    canDecide: session.isAdmin || hasPermission(session, 'approve_leave') || hasPermission(session, 'manage_leave'),
+  };
+}
+
 export async function GET() {
   try {
   if (!hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
@@ -39,7 +81,8 @@ export async function GET() {
   // allowed to see it; everyone else gets the payload without it.
   const canSeeCompliance = session.isAdmin || hasPermission(session, 'view_team_attendance') || hasPermission(session, 'manage_attendance');
   const compliance = canSeeCompliance ? await getAttendanceCompliance(todayKey).catch(() => null) : null;
-  return NextResponse.json({ snapshot, attendance, missing, compliance, attendanceAlerts: canSeeCompliance ? await listAttendanceAlerts().catch(() => []) : [], accounting: await getAccounting(), document: await getDocumentIntelligence(), messages: await getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: await listWorkspaceUsers(), audit: await getAuditEvents(), environment: { mode: 'production', today: todayKey } });
+  const leave = await loadLeaveQueue(session);
+  return NextResponse.json({ leave, snapshot, attendance, missing, compliance, attendanceAlerts: canSeeCompliance ? await listAttendanceAlerts().catch(() => []) : [], accounting: await getAccounting(), document: await getDocumentIntelligence(), messages: await getInternalMessages(), webhooks: getWebhookStatus(), integrations: getIntegrationStatus(), communicationAlerts, aiTriage: getAiTriageItems(communicationAlerts), users: await listWorkspaceUsers(), audit: await getAuditEvents(), environment: { mode: 'production', today: todayKey } });
   } catch (error) {
     const status = error instanceof PermissionError ? error.status : 500;
     return NextResponse.json({ error: error instanceof Error ? error.message : 'The admin workspace could not be loaded.' }, { status });
@@ -51,6 +94,33 @@ export async function POST(request: Request) {
     if (!hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
     const input = await request.json();
     const session = await requireSession();
+
+    if (input.action === 'decide-leave') {
+      if (!session.isAdmin) requireActionPermission(session, 'approve_leave', 'manage_leave');
+      const admin = createSupabaseAdminClient();
+      if (!admin) throw new PermissionError('Leave decisions are not available.', 503);
+      const id = String(input.id ?? '');
+      const decision = input.decision === 'Approved' ? 'Approved' : 'Rejected';
+      const { data: row } = await admin.from('leave_requests').select('*').eq('id', id).maybeSingle();
+      if (!row) throw new PermissionError('Leave request not found.', 404);
+      if (row.status !== 'Pending') throw new PermissionError(`This request was already ${String(row.status).toLowerCase()}.`, 409);
+      const { error } = await admin.from('leave_requests').update({
+        status: decision,
+        decided_by: session.staffId ?? session.account,
+        decision_note: String(input.note ?? '').slice(0, 500),
+        decided_at: new Date().toISOString(),
+      }).eq('id', id);
+      if (error) throw new PermissionError(error.message, 400);
+      await recordAudit({ actorId: session.staffId ?? session.account, actorName: session.name, actorRole: session.role, action: 'leave_decision', targetType: 'LeaveRequest', targetId: id, detail: `${decision}: ${row.leave_type} ${row.starts_on} → ${row.ends_on}`, severity: 'change' }).catch(() => undefined);
+      // Tell the person who asked.
+      await admin.from('notifications').insert({
+        recipient_id: row.user_id, category: 'leave', priority: 'normal',
+        title: `Leave ${decision.toLowerCase()}`,
+        body: `${row.leave_type} leave ${row.starts_on} → ${row.ends_on} was ${decision.toLowerCase()}.${input.note ? ` Note: ${String(input.note).slice(0, 200)}` : ''}`,
+        link_path: '/selfservice', related_type: 'leave_request', related_id: id,
+      }).then(() => undefined, () => undefined);
+      return NextResponse.json({ leave: await loadLeaveQueue(session), message: `Leave ${decision.toLowerCase()}.` });
+    }
 
     if (input.action === 'attendance') {
       if (!session.isAdmin && session.staffId !== input.staffId) requireActionPermission(session, 'manage_attendance');

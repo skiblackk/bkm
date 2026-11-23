@@ -84,7 +84,12 @@ function PortalBody() {
           <h1 style={{ margin: '6px 0 0', fontSize: 26, fontWeight: 600, letterSpacing: '-0.03em', color: '#12263a' }}>Client evidence portal</h1>
           <p style={{ margin: '6px 0 0', fontSize: 13, color: '#5b6672' }}>Upload supporting documents against a client record, or remove one that should not be there.</p>
         </div>
-        <a href="/clients" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#0f766e', textDecoration: 'none', whiteSpace: 'nowrap' }}><ArrowLeft size={14} /> Back to workspace</a>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          <a href="/clients" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#0f766e', textDecoration: 'none', whiteSpace: 'nowrap' }}><ArrowLeft size={14} /> Back to workspace</a>
+          {/* Files uploaded without a client never appear in the list below, so the
+              full library is the only place they can be deleted from. */}
+          <a href="/documents" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#5b6672', textDecoration: 'none', whiteSpace: 'nowrap' }}>All uploads (including unassigned)</a>
+        </div>
       </div>
 
       <div style={{ background: '#fff', border: '1px solid #e4e2dd', borderRadius: 10, padding: 20 }}>

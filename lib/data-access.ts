@@ -126,6 +126,37 @@ export async function updateClient(
   return production.updateClient(clientId, patch, actor);
 }
 
+export async function setClientRelationship(clientId: string, relationship: 'serviced' | 'vendor', actor?: ClientActor) {
+  assertRepositoryReady();
+  return production.setClientRelationship(clientId, relationship, actor);
+}
+
+export async function setClientLogo(clientId: string, logoUrl: string | null, actor?: ClientActor) {
+  assertRepositoryReady();
+  return production.setClientLogo(clientId, logoUrl, actor);
+}
+
+export async function addServiceCharge(
+  input: { clientId: string; serviceName: string; description?: string; direction: 'payable' | 'receivable'; amount: number; currency?: string; billingFrequency?: string; effectiveFrom?: string },
+  actor?: ClientActor,
+) {
+  assertRepositoryReady();
+  return production.addServiceCharge(input, actor);
+}
+
+export async function recordClientPayment(
+  input: { clientId: string; chargeId?: string | null; amount: number; currency?: string; paidOn?: string; method?: string; reference?: string; notes?: string },
+  actor?: ClientActor,
+) {
+  assertRepositoryReady();
+  return production.recordClientPayment(input, actor);
+}
+
+export async function issueReceipt(paymentId: string, notes: string, actor?: ClientActor) {
+  assertRepositoryReady();
+  return production.issueReceipt(paymentId, notes, actor);
+}
+
 export async function updateTask(taskId: string, patch: { status?: TaskStatus; assignedTo?: string }) {
   assertRepositoryReady();
   return production.updateTask(taskId, patch);

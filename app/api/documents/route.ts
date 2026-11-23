@@ -8,9 +8,14 @@ export const maxDuration = 60;
 export async function GET(request: Request) {
   try {
     const session = await requirePermission('manage_documents');
-    const clientId = new URL(request.url).searchParams.get('clientId') ?? undefined;
-    const documents = await listUploadedDocuments({ ownerId: session.account, clientId });
-    return NextResponse.json({ documents });
+    const url = new URL(request.url);
+    const clientId = url.searchParams.get('clientId') ?? undefined;
+    // scope=all is the document library: everything the caller may manage.
+    // Administrators see every upload; everyone else sees their own.
+    const scope = url.searchParams.get('scope');
+    const includeOthers = scope === 'all' && session.isAdmin;
+    const documents = await listUploadedDocuments({ ownerId: session.staffId ?? session.account, clientId, includeOthers });
+    return NextResponse.json({ documents, scope: scope ?? 'own', canSeeAll: session.isAdmin });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Document access denied.' }, { status: 403 });
   }

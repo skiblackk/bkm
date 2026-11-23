@@ -159,19 +159,28 @@ function fromRow(row: { id: string; filename: string; status: string; summary: s
   };
 }
 
-export async function listUploadedDocuments(filter: { ownerId: string; clientId?: string }): Promise<UploadedDocument[]> {
+export async function listUploadedDocuments(filter: {
+  ownerId: string;
+  clientId?: string;
+  /**
+   * Administrators may inspect every upload. Without this, a file belonging to
+   * a deactivated account — or one with no owner recorded at all — became
+   * invisible and therefore permanently undeletable.
+   */
+  includeOthers?: boolean;
+}): Promise<UploadedDocument[]> {
   const admin = createSupabaseAdminClient();
   const rows: StoredDocument[] = [];
   if (admin) {
     const { data } = await admin.from('document_extractions').select('id, filename, status, summary, created_at, extracted_json').order('created_at', { ascending: false }).limit(200);
     for (const row of data ?? []) {
       const item = fromRow(row as never);
-      if (item.ownerId && item.ownerId !== filter.ownerId) continue;
+      if (!filter.includeOthers && item.ownerId && item.ownerId !== filter.ownerId) continue;
       rows.push(item);
     }
   }
   for (const item of Array.from(recent.values())) {
-    if (item.ownerId !== filter.ownerId) continue;
+    if (!filter.includeOthers && item.ownerId !== filter.ownerId) continue;
     if (!rows.some((existing) => existing.id === item.id)) rows.unshift(item);
   }
   rows.sort((a, b) => (a.uploadedAt < b.uploadedAt ? 1 : -1));
@@ -203,7 +212,14 @@ export async function deleteUploadedDocument(
     p_document_id: id,
     p_is_admin: actor.isAdmin,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Belt and braces: if a future schema change reintroduces an unparseable
+    // reference, say so in words instead of surfacing a Postgres type error.
+    const message = /invalid input syntax for type uuid/i.test(error.message)
+      ? 'This document stored a client reference that is not a record id, so the delete was rejected. Report this message so the guard can be widened.'
+      : error.message;
+    throw new Error(message);
+  }
 }
 
 /** Full record including the extracted text, for answering a question about it. */

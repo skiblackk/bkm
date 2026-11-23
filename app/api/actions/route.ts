@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient, updateClient, createQuotation, createReport, createTask, updateTask } from '@/lib/data-access';
+import { createClient, updateClient, createQuotation, createReport, createTask, updateTask, setClientRelationship, setClientLogo, addServiceCharge, recordClientPayment, issueReceipt } from '@/lib/data-access';
 import { z } from 'zod';
 import { requirePermission } from '@/lib/auth';
 import { isPermissionError } from '@/lib/permissions';
@@ -26,6 +26,34 @@ const actionSchema = z.discriminatedUnion('action', [
     status: z.enum(['Active', 'On hold', 'Archived']),
   }),
   z.object({ action: z.literal('createQuotation'), clientId: z.string(), service: z.string(), description: z.string(), terms: z.string(), items: z.array(z.object({ id: z.string(), description: z.string(), quantity: z.number(), unitPrice: z.number() })) }),
+  z.object({ action: z.literal('setClientRelationship'), clientId: z.string().uuid(), relationship: z.enum(['serviced', 'vendor']) }),
+  // A logo arrives as a data URI. 200 KB of raw image becomes roughly 270 KB
+  // once base64-encoded, so the ceiling here guards the column, not the column
+  // type: storing a logo inline avoids needing a storage bucket and signed URLs.
+  z.object({ action: z.literal('setClientLogo'), clientId: z.string().uuid(), logoUrl: z.string().max(400000).nullable() }),
+  z.object({
+    action: z.literal('addServiceCharge'),
+    clientId: z.string().uuid(),
+    serviceName: z.string().trim().min(2, 'Describe the service being paid for.'),
+    description: z.string().optional(),
+    direction: z.enum(['payable', 'receivable']),
+    amount: z.number().positive('The amount must be greater than zero.'),
+    currency: z.string().optional(),
+    billingFrequency: z.enum(['one-off', 'weekly', 'monthly', 'quarterly', 'annual']).optional(),
+    effectiveFrom: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal('recordClientPayment'),
+    clientId: z.string().uuid(),
+    chargeId: z.string().uuid().nullable().optional(),
+    amount: z.number().positive('The payment amount must be greater than zero.'),
+    currency: z.string().optional(),
+    paidOn: z.string().optional(),
+    method: z.string().optional(),
+    reference: z.string().optional(),
+    notes: z.string().optional(),
+  }),
+  z.object({ action: z.literal('issueReceipt'), paymentId: z.string().uuid(), notes: z.string().optional() }),
   z.object({ action: z.literal('createReport'), clientId: z.string(), engagementId: z.string(), reportType: z.string() }),
 ]);
 
@@ -43,7 +71,7 @@ function friendlyValidationError(error: z.ZodError): { error: string; fields: Re
   return { error: first, fields };
 }
 
-const CLIENT_PERMISSION = new Set(['createClient', 'updateClient', 'setClientStatus', 'createQuotation']);
+const CLIENT_PERMISSION = new Set(['createClient', 'updateClient', 'setClientStatus', 'createQuotation', 'setClientRelationship', 'setClientLogo', 'addServiceCharge', 'recordClientPayment', 'issueReceipt']);
 
 export async function POST(request: Request) {
   try {
@@ -94,6 +122,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ snapshot, message });
     }
     if (input.action === 'createQuotation') return NextResponse.json({ snapshot: await createQuotation(input), message: 'Quotation prepared as a draft.' });
+    if (input.action === 'setClientRelationship') {
+      const snapshot = await setClientRelationship(input.clientId, input.relationship, actor);
+      const noun = input.relationship === 'vendor' ? 'paid by BKM' : 'serviced by BKM';
+      return NextResponse.json({ snapshot, message: `Record marked as ${noun}.` });
+    }
+    if (input.action === 'setClientLogo') {
+      const snapshot = await setClientLogo(input.clientId, input.logoUrl, actor);
+      return NextResponse.json({ snapshot, message: input.logoUrl ? 'Client logo saved.' : 'Client logo removed.' });
+    }
+    if (input.action === 'addServiceCharge') {
+      const snapshot = await addServiceCharge(input, actor);
+      return NextResponse.json({ snapshot, message: 'Service charge added to the record.' });
+    }
+    if (input.action === 'recordClientPayment') {
+      const snapshot = await recordClientPayment(input, actor);
+      return NextResponse.json({ snapshot, message: 'Payment recorded. A receipt can now be printed.' });
+    }
+    if (input.action === 'issueReceipt') {
+      const result = await issueReceipt(input.paymentId, input.notes ?? '', actor);
+      return NextResponse.json({ snapshot: result.snapshot, receipt: result.receipt, message: `Receipt ${result.receipt?.receiptNumber ?? ''} issued.` });
+    }
 
     const generated = await createReport(input);
     return NextResponse.json({ snapshot: generated.snapshot, report: generated.report, message: 'Draft report generated.' });
