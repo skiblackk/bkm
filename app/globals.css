@@ -79,3 +79,94 @@ button:active { transform: translateY(1px); }
   .task-table select { min-height: 38px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; } }
+
+/* ---------------------------------------------------------------------------
+ * Receipt viewer.
+ *
+ * The receipt is rendered into <body> (see client-billing-panel.tsx) so that it
+ * can be isolated when printing. Because it sits outside the workspace layout,
+ * it needs its own screen styling: a centred overlay, otherwise the fixed
+ * sidebar paints on top of it and the left edge of the document is cut off.
+ * ------------------------------------------------------------------------- */
+@media screen {
+  #receipt-print {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    overflow-y: auto;
+    background: rgb(15 23 42 / 0.55);
+    padding: 24px 16px 40px;
+  }
+  #receipt-print > article {
+    box-shadow: 0 24px 60px rgb(2 6 23 / 0.35);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Receipt printing.
+ *
+ * "Print / save PDF" called window.print(), which prints the *page*. A receipt
+ * came out as a five-page dump of the entire workspace.
+ *
+ * Two things are needed to fix that, and the first one was not obvious:
+ *
+ *   1. Hiding the application with visibility:hidden is NOT enough. A hidden
+ *      element still occupies layout space, so the document keeps its full
+ *      height and still paginates — you just get five blank-ish pages instead
+ *      of five full ones.
+ *   2. The receipt must therefore be a sibling of the application, not a
+ *      descendant. It is rendered into <body> through a React portal, and while
+ *      printing every other direct child of <body> is removed from the layout
+ *      with display:none.
+ *
+ * With the application out of the layout entirely, the receipt is the only
+ * thing left to paginate and it fits on one page.
+ * ------------------------------------------------------------------------- */
+@media print {
+  @page { size: A4; margin: 14mm; }
+
+  html, body {
+    background: #fff !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* The application contributes nothing to the printed page. */
+  body > *:not(#receipt-print) { display: none !important; }
+
+  #receipt-print {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    z-index: auto !important;
+  }
+
+  /* Anything marked as screen-only furniture does not print. */
+  .no-print { display: none !important; }
+
+  #receipt-print article {
+    border: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  #receipt-print table { page-break-inside: avoid; break-inside: avoid; }
+  #receipt-print .receipt-amount { color: #0f172a !important; }
+
+  /* If a receipt is not open, the print of a page is the page itself. */
+  body:not(:has(#receipt-print)) > * { display: revert !important; }
+  a[href]::after { content: "" !important; }
+}

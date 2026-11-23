@@ -87,7 +87,9 @@ async function fetchSnapshotRows(): Promise<SnapshotRows> {
   const client = db();
   const [profiles, clients, contacts, engagements, members, tasks, documents, quotations, items, reports, activities, charges, payments, receipts] = await Promise.all([
     client.from('profiles').select('id, full_name, email, initials, is_admin, active, color, availability, roles(name)').eq('active', true).order('created_at', { ascending: true }),
-    client.from('clients').select('*').order('created_at', { ascending: true }),
+    // Soft-deleted records (removed by a person or by the agent) stay in the
+    // table so they can be restored, but they must not appear in the register.
+    client.from('clients').select('*').is('deleted_at', null).order('created_at', { ascending: true }),
     client.from('client_contacts').select('*'),
     client.from('engagements').select('*').order('created_at', { ascending: true }),
     client.from('engagement_members').select('*'),

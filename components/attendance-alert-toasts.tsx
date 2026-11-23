@@ -105,7 +105,22 @@ export default function AttendanceAlertToasts() {
   if (!toasts.length) return null;
 
   return (
-    <div className="pointer-events-none fixed right-4 top-20 z-[70] flex w-[min(390px,calc(100vw-2rem))] flex-col gap-3" role="status" aria-live="polite" aria-label="Attendance alerts">
+    // Anchored bottom-right, not under the header. At top-right the stack sat
+    // directly over the page's primary action (the "Add client" button on the
+    // Clients screen), so an unread alert silently blocked the work it was
+    // alerting about. Bottom-right keeps it clear of action rows, the height is
+    // capped so a run of missed check-ins cannot bury the page, and a single
+    // control clears the whole stack.
+    <div className="pointer-events-none fixed bottom-4 right-4 z-[70] flex max-h-[min(60vh,32rem)] w-[min(390px,calc(100vw-2rem))] flex-col gap-3 overflow-y-auto overscroll-contain" role="status" aria-live="polite" aria-label="Attendance alerts">
+      {toasts.length > 1 && (
+        <button
+          type="button"
+          onClick={() => setToasts([])}
+          className="pointer-events-auto self-end rounded-md border border-line bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500 shadow-sm hover:border-gold hover:text-navy"
+        >
+          Dismiss all {toasts.length}
+        </button>
+      )}
       {toasts.map((toast) => {
         const missing = /not checked in/i.test(toast.title);
         const urgent = toast.priority === 'High' || toast.priority === 'Urgent';

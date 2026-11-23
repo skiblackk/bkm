@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { BadgeCheck, Building2, ImagePlus, Loader2, Printer, Receipt, Trash2, Wallet } from 'lucide-react';
 import type { Client, ClientReceipt } from '@/lib/types';
+import { BKM_BRAND } from '@/lib/brand';
 
 type Props = {
   client: Client;
@@ -11,8 +13,6 @@ type Props = {
 
 const money = (currency: string, value: number) =>
   `${currency} ${value.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-const isPdf = (url: string) => url.startsWith('data:application/pdf');
 
 /**
  * Billing and identity for one client record.
@@ -30,6 +30,53 @@ const isPdf = (url: string) => url.startsWith('data:application/pdf');
  * it needs no bucket, no signed URL and no second permission model, and a
  * company logo is a few kilobytes.
  */
+/**
+ * Prepare an uploaded logo without ever refusing it.
+ *
+ * There used to be a 200 KB ceiling on logos, which pushed the problem onto
+ * the user: their client's logo was "too big". Instead the browser redraws the
+ * image at a sensible display size and re-encodes it, so a 6 MB photograph
+ * becomes a crisp logo of a few tens of kilobytes. Transparency is preserved
+ * for PNG; everything else becomes JPEG. If the browser cannot decode the file
+ * at all, the original bytes are sent and the user is told what happened.
+ */
+async function shrinkImage(file: File, maxEdge = 512): Promise<string> {
+  const readAsDataUri = () => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('unreadable'));
+    reader.readAsDataURL(file);
+  });
+
+  // SVG has no pixels to resample; ship it as-is.
+  if (file.type === 'image/svg+xml') return readAsDataUri();
+
+  const original = await readAsDataUri();
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new Image();
+    element.onload = () => resolve(element);
+    element.onerror = () => reject(new Error('undecodable'));
+    element.src = original;
+  }).catch(() => null);
+
+  if (!image) return original;
+
+  const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) return original;
+  context.drawImage(image, 0, 0, width, height);
+
+  const keepAlpha = file.type === 'image/png';
+  const encoded = canvas.toDataURL(keepAlpha ? 'image/png' : 'image/jpeg', 0.92);
+  // Only take the re-encode if it actually helped.
+  return encoded.length < original.length ? encoded : original;
+}
+
 export default function ClientBillingPanel({ client, onSnapshot }: Props) {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -45,6 +92,9 @@ export default function ClientBillingPanel({ client, onSnapshot }: Props) {
   const [paymentForm, setPaymentForm] = useState({ chargeId: '', amount: '', method: 'Bank transfer', reference: '', paidOn: new Date().toISOString().slice(0, 10) });
   const [receipt, setReceipt] = useState<ClientReceipt | null>(null);
   const logoInput = useRef<HTMLInputElement>(null);
+  // Portals need a DOM target, so nothing renders into <body> until mounted.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   // Follow the relationship when it changes on the record.
   useEffect(() => {
@@ -81,11 +131,13 @@ export default function ClientBillingPanel({ client, onSnapshot }: Props) {
   const pickLogo = (file: File) => {
     setError(''); setNotice('');
     if (!/^image\//.test(file.type)) { setError('Choose an image file (PNG, JPG, SVG or WebP).'); return; }
-    if (file.size > 200 * 1024) { setError(`That file is ${(file.size / 1024).toFixed(0)} KB. Use an image under 200 KB so the logo stays quick to load.`); return; }
-    const reader = new FileReader();
-    reader.onload = () => { void call({ action: 'setClientLogo', clientId: client.id, logoUrl: String(reader.result) }, 'Unable to save the logo.', 'logo'); };
-    reader.onerror = () => setError('That image could not be read. Try another file.');
-    reader.readAsDataURL(file);
+    // No size limit: logos are whatever the client sends. Large files are
+    // downscaled in the browser before upload so the row stays manageable
+    // without ever refusing the user's file.
+    setBusy('logo');
+    shrinkImage(file)
+      .then((dataUri) => call({ action: 'setClientLogo', clientId: client.id, logoUrl: dataUri }, 'Unable to save the logo.', 'logo'))
+      .catch(() => { setBusy(''); setError('That image could not be read. Try another file.'); });
   };
 
   const addCharge = async () => {
@@ -252,25 +304,102 @@ export default function ClientBillingPanel({ client, onSnapshot }: Props) {
       </button>
     </div>
 
-    {receipt && <div className="panel p-5" data-testid="receipt-card" id="receipt-print">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="eyebrow">Receipt</div>
-          <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] tabular">{receipt.receiptNumber}</h3>
+    {receipt && mounted && createPortal((() => {
+      // The receipt is rendered into <body> through a portal, not into the
+      // billing panel. That matters for printing: while the receipt lives deep
+      // inside the workspace DOM, every element above it still occupies page
+      // height even when hidden, so "Print / save PDF" paginates the whole
+      // application and you get five pages. As a direct child of <body> it can
+      // be isolated with a single rule and prints as exactly one page.
+      const linkedPayment = client.payments.find((payment) => payment.id === receipt.paymentId);
+      const linkedCharge = linkedPayment?.chargeId ? client.serviceCharges.find((charge) => charge.id === linkedPayment.chargeId) : undefined;
+      const description = receipt.notes
+        || linkedCharge?.serviceName
+        || (vendor ? `Payment by BKM for services supplied by ${client.name}.` : `Payment received from ${client.name}.`);
+      return <div id="receipt-print" data-testid="receipt-print-layer">
+        <div className="no-print" style={{ maxWidth: 720, margin: '0 auto 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <div className="eyebrow">Receipt preview</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" data-testid="print-receipt" onClick={() => window.print()} className="flex items-center gap-1.5 rounded-md bg-navy px-3 py-2 text-[11px] font-bold text-white hover:bg-navy/90"><Printer size={12} /> Print / save PDF</button>
+            <button type="button" onClick={() => setReceipt(null)} className="rounded-md border border-line bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-500">Close</button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button type="button" data-testid="print-receipt" onClick={() => window.print()} className="flex items-center gap-1.5 rounded-md border border-line bg-white px-2.5 py-1.5 text-[11px] font-semibold text-navy hover:border-teal-300"><Printer size={12} /> Print / save PDF</button>
-          <button type="button" onClick={() => setReceipt(null)} className="rounded-md border border-line px-2.5 py-1.5 text-[11px] font-semibold text-slate-500">Close</button>
-        </div>
-      </div>
-      <dl className="mt-4 grid gap-3 border-t border-line pt-4 text-xs sm:grid-cols-2">
-        <div><dt className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Received from / paid to</dt><dd className="mt-1 font-semibold">{client.name}</dd></div>
-        <div><dt className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Amount</dt><dd className="mt-1 font-semibold tabular">{money(receipt.currency, receipt.amount)}</dd></div>
-        <div><dt className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Date issued</dt><dd className="mt-1 font-semibold">{receipt.issuedOn}</dd></div>
-        <div><dt className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Issued by</dt><dd className="mt-1 font-semibold">{receipt.issuedByName || 'BKM Associates'}</dd></div>
-        <div className="sm:col-span-2"><dt className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Description</dt><dd className="mt-1 text-slate-600">{receipt.notes || (vendor ? `Payment by BKM for services supplied by ${client.name}.` : `Payment received from ${client.name}.`)}</dd></div>
-      </dl>
-      {isPdf(client.logoUrl) && null}
-    </div>}
+
+        <article data-testid="receipt-document" className="bg-white" style={{ maxWidth: 720, margin: '0 auto', padding: 32, border: '1px solid #e4e2dd', borderRadius: 8, color: '#0f172a' }}>
+          {/* Letterhead */}
+          <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, borderBottom: '3px solid #12263a', paddingBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <img src={BKM_BRAND.logoDataUri} alt="BKM Associates" style={{ height: 54, width: 'auto', display: 'block' }} />
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em', color: '#12263a' }}>{BKM_BRAND.name}</div>
+                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#8a8f98', marginTop: 3 }}>{BKM_BRAND.tagline}</div>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#8a8f98' }}>{vendor ? 'Payment voucher' : 'Official receipt'}</div>
+              <div data-testid="receipt-number" style={{ fontSize: 15, fontWeight: 700, marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{receipt.receiptNumber}</div>
+              <div style={{ fontSize: 11, color: '#5b6672', marginTop: 3 }}>Issued {receipt.issuedOn}</div>
+            </div>
+          </header>
+
+          {/* Parties */}
+          <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, padding: '20px 0', borderBottom: '1px solid #e4e2dd' }}>
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#8a8f98' }}>{vendor ? 'Paid to' : 'Received from'}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginTop: 6 }}>{client.name}</div>
+              <div style={{ fontSize: 11, color: '#5b6672', marginTop: 3 }}>{client.industry}</div>
+              <div style={{ fontSize: 11, color: '#5b6672' }}>{client.location}</div>
+              {client.contactName ? <div style={{ fontSize: 11, color: '#5b6672', marginTop: 4 }}>Attn: {client.contactName}</div> : null}
+            </div>
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#8a8f98' }}>Issued by</div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginTop: 6 }}>{BKM_BRAND.name}</div>
+              {BKM_BRAND.address.slice(1).map((line) => <div key={line} style={{ fontSize: 11, color: '#5b6672', marginTop: 2 }}>{line}</div>)}
+              {BKM_BRAND.contact.map((line) => <div key={line} style={{ fontSize: 11, color: '#5b6672' }}>{line}</div>)}
+              <div style={{ fontSize: 11, color: '#5b6672', marginTop: 4 }}>Prepared by {receipt.issuedByName || BKM_BRAND.name}</div>
+            </div>
+          </section>
+
+          {/* The money */}
+          <section style={{ padding: '20px 0' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#8a8f98', borderBottom: '1px solid #aeb2b6', paddingBottom: 8 }}>Description</th>
+                  <th style={{ textAlign: 'right', fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#8a8f98', borderBottom: '1px solid #aeb2b6', paddingBottom: 8, width: 150 }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ padding: '12px 0', verticalAlign: 'top' }}>
+                    <div style={{ fontWeight: 600 }}>{description}</div>
+                    <div style={{ fontSize: 11, color: '#5b6672', marginTop: 3 }}>
+                      {linkedCharge ? `${linkedCharge.billingFrequency} · ${linkedCharge.direction === 'payable' ? 'payable by BKM' : 'billed by BKM'}` : 'Ad hoc payment'}
+                      {linkedPayment?.reference ? ` · ref ${linkedPayment.reference}` : ''}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#5b6672', marginTop: 2 }}>Paid on {linkedPayment?.paidOn ?? receipt.issuedOn}{linkedPayment?.method ? ` by ${linkedPayment.method.toLowerCase()}` : ''}</div>
+                  </td>
+                  <td style={{ textAlign: 'right', padding: '12px 0', verticalAlign: 'top', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{money(receipt.currency, receipt.amount)}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td style={{ borderTop: '2px solid #12263a', paddingTop: 12, fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#12263a' }}>Total {vendor ? 'paid' : 'received'}</td>
+                  <td data-testid="receipt-total" className="receipt-amount" style={{ borderTop: '2px solid #12263a', paddingTop: 12, textAlign: 'right', fontSize: 18, fontWeight: 700, color: '#12263a', fontVariantNumeric: 'tabular-nums' }}>{money(receipt.currency, receipt.amount)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </section>
+
+          {/* Footer */}
+          <footer style={{ borderTop: '1px solid #e4e2dd', paddingTop: 14, display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'flex-end' }}>
+            <p style={{ margin: 0, fontSize: 9.5, lineHeight: 1.6, color: '#8a8f98', maxWidth: 420 }}>{BKM_BRAND.footerNote}</p>
+            <div style={{ textAlign: 'right', fontSize: 9.5, color: '#8a8f98', whiteSpace: 'nowrap' }}>
+              <div style={{ borderTop: '1px solid #aeb2b6', paddingTop: 6, minWidth: 140 }}>Authorised signature</div>
+            </div>
+          </footer>
+        </article>
+      </div>;
+    })(), document.body)}
   </div>;
 }

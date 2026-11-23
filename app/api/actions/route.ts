@@ -27,10 +27,11 @@ const actionSchema = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('createQuotation'), clientId: z.string(), service: z.string(), description: z.string(), terms: z.string(), items: z.array(z.object({ id: z.string(), description: z.string(), quantity: z.number(), unitPrice: z.number() })) }),
   z.object({ action: z.literal('setClientRelationship'), clientId: z.string().uuid(), relationship: z.enum(['serviced', 'vendor']) }),
-  // A logo arrives as a data URI. 200 KB of raw image becomes roughly 270 KB
-  // once base64-encoded, so the ceiling here guards the column, not the column
-  // type: storing a logo inline avoids needing a storage bucket and signed URLs.
-  z.object({ action: z.literal('setClientLogo'), clientId: z.string().uuid(), logoUrl: z.string().max(400000).nullable() }),
+  // A logo arrives as a data URI. There is no user-facing size limit: the panel
+  // downscales large images before upload, and the 8 MB guard below exists only
+  // to stop a malformed or hostile request writing an unbounded value into the
+  // row. A real logo never comes close.
+  z.object({ action: z.literal('setClientLogo'), clientId: z.string().uuid(), logoUrl: z.string().max(8_000_000).nullable() }),
   z.object({
     action: z.literal('addServiceCharge'),
     clientId: z.string().uuid(),

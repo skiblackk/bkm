@@ -129,6 +129,12 @@ export async function POST(request: Request) {
     }
 
     if (input.action === 'wipe-workspace-data') {
+      // Enforced on the server as well as in the form. The reset deletes every
+      // business record with no backup behind it, so a stray or replayed request
+      // must not be able to do it.
+      if (String(input.confirmPhrase ?? '').trim().toUpperCase() !== 'RESET WORKSPACE') {
+        return NextResponse.json({ error: 'To confirm the reset, type RESET WORKSPACE in the confirmation box. Nothing has been deleted.' }, { status: 400 });
+      }
       requireActionPermission(session, 'manage_workspace_settings');
       const result = await wipeWorkspaceData();
       await recordAudit({ actorId: session.account, actorName: session.name, actorRole: session.role, action: 'wipe_workspace_data', targetType: 'Workspace', targetId: 'workspace', detail: `Workspace reset: ${Object.values(result.cleared).reduce((sum, count) => sum + count, 0)} records cleared`, severity: 'security' }).catch(() => undefined);
