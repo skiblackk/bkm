@@ -50,6 +50,10 @@ Rules:
 6. When asked to fix or audit, report the faults found and propose the fix for each. Do
    not interrogate the user for data in reply to an audit request.
 7. Be brief: one or two sentences, plus the single question you need answered.
+8. NEVER propose deleting a record just because it is incomplete, empty or badly
+   filled in. An incomplete record is repaired by proposing the missing details.
+   Only propose deletion when the person explicitly asked to delete or remove
+   something, and say what will be removed before you do.
 
 Register facts come only from your tools. Do not claim to know anything you have not looked up.`;
 
@@ -150,6 +154,10 @@ export async function POST(request: Request) {
     const messages: ChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }, ...history];
     const trace: Array<{ tool: string; summary: string; denied?: boolean }> = [];
     let proposal: AgentProposal | null = null;
+    // The model's own sentence about what it found. Kept so that running out of
+    // tool rounds never costs the user the explanation — replacing it with a
+    // generic "review the details" line hides exactly the useful part.
+    let lastContent = '';
     // Three rounds is enough to look something up and then propose from it,
     // without letting a confused model spin.
     let insisted = false;
@@ -182,6 +190,7 @@ export async function POST(request: Request) {
       const message = payload.choices?.[0]?.message;
       if (!message) return NextResponse.json({ error: 'The AI provider returned an empty response.' }, { status: 502 });
 
+      if (message.content) lastContent = message.content;
       if (!message.tool_calls?.length) {
         // Everything needed is already in the conversation but nothing has been
         // proposed: one more round with an explicit instruction, then accept
@@ -228,12 +237,29 @@ export async function POST(request: Request) {
     }
 
     // A proposal on the table is a usable outcome even if the model ran out of
-    // rounds before writing its sentence.
+    // rounds before writing its sentence. Use its own explanation if it wrote one.
+    const userText = history.filter((item) => item.role === 'user').map((item) => item.content).join('\n');
+    const deleteWasAskedFor = /\b(delete|remove|discard|drop|de-?duplicate|duplicate)\b/i.test(userText);
+    let finalProposal = proposal;
+    let reply = lastContent.trim();
+
+    // Guard rail. A model that reaches for "delete" to tidy an incomplete record
+    // is doing something the user never asked for, and it is the one agent action
+    // that can hide a real client. Incomplete records are repaired, not removed.
+    if (finalProposal?.action === 'delete_client' && !deleteWasAskedFor) {
+      finalProposal = null;
+      reply = 'That record is incomplete rather than wrong, so I have not proposed removing it. Tell me the missing details and I will propose updating it instead — or say "delete it" if you really do want it gone.';
+    }
+
+    if (!reply) {
+      reply = finalProposal
+        ? `${finalProposal.label}. Review the details and confirm when you are happy.`
+        : 'I gathered what I could but did not reach a conclusion. Try stating the organisation name and what BKM does for or with them.';
+    }
+
     return NextResponse.json({
-      reply: proposal
-        ? proposal.label + ' — review the details and confirm when you are happy.'
-        : 'I gathered what I could but did not reach a conclusion. Try stating the organisation name and what BKM does for or with them.',
-      proposals: proposal ? [proposal] : [],
+      reply,
+      proposals: finalProposal ? [finalProposal] : [],
       trace,
       model,
     });
