@@ -233,7 +233,7 @@ export async function GET(request: Request) {
     const { data: messages } = await admin.from('ai_messages').select('id, role, content, created_at').eq('conversation_id', conversationId).order('created_at');
     return NextResponse.json({ messages: messages ?? [] });
   }
-  const { data: conversations } = await admin.from('ai_conversations').select('id, title, created_at').eq('profile_id', session.account).order('created_at', { ascending: false }).limit(20);
+  const { data: conversations } = await admin.from('ai_conversations').select('id, title, created_at').eq('profile_id', session.account).eq('surface', 'copilot').order('created_at', { ascending: false }).limit(20);
   return NextResponse.json({ conversations: conversations ?? [], ai: status });
 }
 
@@ -255,7 +255,7 @@ export async function POST(request: Request) {
       if (!owned) return NextResponse.json({ error: 'Conversation not found.' }, { status: 404 });
       history = (prior ?? []) as Array<{ role: string; content: string }>;
     } else {
-      const { data: created } = await admin.from('ai_conversations').insert({ profile_id: session.account, title: question.slice(0, 80) }).select('id').single();
+      const { data: created } = await admin.from('ai_conversations').insert({ profile_id: session.account, title: question.slice(0, 80), surface: 'copilot' }).select('id').single();
       conversationId = created?.id ?? null;
     }
 
@@ -281,11 +281,18 @@ ${answer.answer}`;
     }
     answer.conversationId = conversationId;
 
+    // Ordering matters here. ai_messages rows were inserted without waiting, so a
+    // second question asked while the first pair was still landing could be read
+    // back out of order — the user's question appearing after the answer. The
+    // turn is now written before the response returns, and the surface is tagged
+    // so copilot history does not mix with the other assistants.
     if (conversationId) {
-      await admin.from('ai_messages').insert([
+      const { error: writeError } = await admin.from('ai_messages').insert([
         { conversation_id: conversationId, role: 'user', content: question },
         { conversation_id: conversationId, role: 'assistant', content: answer.answer },
-      ]).then(() => undefined, () => undefined);
+      ]);
+      if (writeError) console.error('[copilot] history write failed:', writeError.message);
+      await admin.from('ai_conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId);
     }
     for (const item of answer.toolTrace) {
       await admin.from('ai_actions').insert({ conversation_id: conversationId, tool_name: item.tool, input_json: { question: question.slice(0, 200) }, result_summary: item.summary.slice(0, 500) }).then(() => undefined, () => undefined);

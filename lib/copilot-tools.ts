@@ -137,6 +137,7 @@ export const TOOL_SPECS: ToolSpec[] = [
   { name: 'audit_log_summary', description: 'Recent system audit events: permission changes, sign-ins, administrative actions.', parameters: { type: 'object', properties: { from: { type: 'string', description: 'Start date YYYY-MM-DD' }, to: { type: 'string', description: 'End date YYYY-MM-DD' } } } },
   { name: 'system_health', description: 'Integration and webhook connection status and configuration gaps.', parameters: { type: 'object', properties: {} } },
   { name: 'employee_directory', description: 'Active employee list with roles and approval status.', parameters: { type: 'object', properties: {} } },
+  { name: 'lookup_person', description: 'Look up a person by name across the whole system: staff accounts, client records they are the primary contact for, and client contacts. Use this for any question about who someone is. Returns every role a person holds, not just the first one found.', parameters: { type: 'object', properties: { name: { type: 'string', description: 'Person name, or part of it' } }, required: ['name'] } },
   { name: 'my_tasks', description: 'The requesting user\'s own tasks and deadlines.', parameters: { type: 'object', properties: {} } },
   { name: 'finance_overview', description: 'Journal entry counts by status and financial statement headlines from the accounting records.', parameters: { type: 'object', properties: {} } },
   { name: 'recent_broadcasts', description: 'Recent company announcements and broadcasts.', parameters: { type: 'object', properties: {} } },
@@ -214,6 +215,86 @@ export async function executeTool(name: string, args: Record<string, unknown>, s
         const { data } = await admin.from('profiles').select('id, full_name, email, is_admin, active, approval_status, roles(name)').order('full_name');
         const rows = (data ?? []).map((p: { id: string; full_name: string; email: string; active: boolean; approval_status: string; roles: { name?: string } | Array<{ name?: string }> | null }) => ({ id: p.id, name: p.full_name, email: p.email, role: (Array.isArray(p.roles) ? p.roles[0]?.name : (p.roles as { name?: string } | null)?.name) ?? 'Staff', active: p.active, approvalStatus: p.approval_status }));
         return { tool: name, ok: true, summary: `${rows.filter((r: { active: boolean }) => r.active).length} active account(s), ${rows.filter((r: { approvalStatus: string }) => r.approvalStatus === 'pending').length} awaiting approval.`, data: { people: rows }, scope: 'staff directory' };
+      }
+      /**
+       * Who is this person?
+       *
+       * Asked "who is Joshua Musumbi", the copilot answered from the staff
+       * directory alone — correct, but only half the answer, because the same
+       * person was also a client. A person in this system can hold several roles
+       * at once: staff account, client contact, and sometimes the client itself.
+       * This looks across all of those and reports every role it finds, so an
+       * answer never quietly omits that someone is also a client.
+       */
+      case 'lookup_person': {
+        if (!hasPermission(session, 'view_staff_directory') && !hasPermission(session, 'manage_clients') && !session.isAdmin) return deny(name, ['view_staff_directory', 'manage_clients']);
+        const wanted = String(args.name ?? '').trim();
+        if (wanted.length < 2) return { tool: name, ok: false, summary: 'Give me a name to look up.', scope: 'staff, clients and contacts' };
+        const admin = db();
+        const like = `%${wanted.replace(/[%_]/g, '')}%`;
+        const [{ data: staff }, { data: contacts }, { data: clientRows }] = await Promise.all([
+          admin.from('profiles').select('id, full_name, email, is_admin, active, approval_status, availability, roles(name)').ilike('full_name', like),
+          admin.from('client_contacts').select('id, client_id, full_name, email, phone, is_primary, clients(id, name, deleted_at)').ilike('full_name', like),
+          admin.from('clients').select('id, name, industry, location, status, relationship_type, deleted_at').ilike('name', like).is('deleted_at', null),
+        ]);
+
+        const people = (staff ?? []) as Array<{ id: string; full_name: string; email: string; is_admin: boolean; active: boolean; approval_status: string; availability: string; roles: { name?: string } | Array<{ name?: string }> | null }>;
+        const contactRows = (contacts ?? []) as Array<{ id: string; client_id: string; full_name: string; email: string; phone: string; is_primary: boolean; clients: { id: string; name: string } | Array<{ id: string; name: string }> | null }>;
+        const matchedClients = (clientRows ?? []) as Array<{ id: string; name: string; industry: string; location: string; status: string; relationship_type: string }>;
+
+        // Group by person: an exact name match unions the staff row with any
+        // contact row that shares the name, so one person is described once.
+        const byName = new Map<string, { name: string; roles: string[]; staff: boolean; clientContactFor: string[]; email: string | null; details: string[] }>();
+        const key = (fullName: string) => fullName.trim().toLowerCase();
+        const ensure = (fullName: string) => {
+          const k = key(fullName);
+          if (!byName.has(k)) byName.set(k, { name: fullName, roles: [], staff: false, clientContactFor: [], email: null, details: [] });
+          return byName.get(k)!;
+        };
+
+        for (const person of people) {
+          const entry = ensure(person.full_name);
+          const roleName = (Array.isArray(person.roles) ? person.roles[0]?.name : (person.roles as { name?: string } | null)?.name) ?? 'Staff';
+          entry.staff = true;
+          entry.roles.push(person.is_admin ? 'Administrator' : roleName);
+          entry.email = entry.email ?? person.email;
+          entry.details.push(`staff account${person.active ? '' : ' (inactive)'}${person.approval_status === 'pending' ? ' awaiting approval' : ''}${person.availability ? ` · ${person.availability}% available` : ''}`);
+        }
+        for (const contact of contactRows) {
+          const linked = Array.isArray(contact.clients) ? contact.clients[0] : contact.clients;
+          if (!linked) continue;
+          const entry = ensure(contact.full_name);
+          entry.clientContactFor.push(`${linked.name}${contact.is_primary ? ' (primary contact)' : ''}`);
+          entry.email = entry.email ?? contact.email;
+          if (!entry.roles.includes('Client contact')) entry.roles.push('Client contact');
+        }
+        for (const client of matchedClients) {
+          const entry = ensure(client.name);
+          entry.roles.push(client.relationship_type === 'vendor' ? 'Supplier paid by BKM' : 'Client serviced by BKM');
+          entry.details.push(`${client.industry || 'No industry'} · ${client.location || 'No location'} · ${client.status}`);
+        }
+
+        const found = Array.from(byName.values());
+        if (!found.length) {
+          return {
+            tool: name, ok: true, scope: 'staff, clients and contacts',
+            summary: `Nobody called "${wanted}" appears as staff, a client contact, or a client record. I have not found them anywhere in the system.`,
+            data: { people: [] },
+          };
+        }
+
+        const lines = found.map((entry) => {
+          const roleList = entry.roles.length ? entry.roles.join(' and ') : 'no role recorded';
+          const clientList = entry.clientContactFor.length ? ` — contact for ${entry.clientContactFor.join(', ')}` : '';
+          const detailList = entry.details.length ? ` (${entry.details.join('; ')})` : '';
+          return `- ${entry.name}: ${roleList}${clientList}${detailList}`;
+        });
+        const multi = found.filter((entry) => entry.roles.length > 1).length;
+
+        return {
+          tool: name, ok: true, scope: 'staff, clients and contacts',
+          summary: `${found.length} person/record(s) match "${wanted}":\n${lines.join('\n')}${multi ? `\n${multi} of them hold more than one role.` : ''}`,
+        };
       }
       case 'my_tasks': {
         const admin = db();

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Bot, CheckCircle2, Loader2, Send, Sparkles, TriangleAlert, Undo2, X } from 'lucide-react';
+import { Bot, CheckCircle2, Loader2, Send, Sparkles, TriangleAlert, Undo2, X, History, Plus } from 'lucide-react';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -37,14 +37,72 @@ export default function ClientAgent({ onChanged }: { onChanged: () => void }) {
   const [notice, setNotice] = useState('');
   const [undo, setUndo] = useState<{ action: string; payload: Record<string, unknown> } | null>(null);
   const [aiReady, setAiReady] = useState<boolean | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [history, setHistory] = useState<Array<{ id: string; title: string; updatedAt: string; messageCount: number }>>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    fetch('/api/agent', { cache: 'no-store' })
-      .then((response) => response.json())
-      .then((payload) => setAiReady(Boolean(payload?.ai?.configured)))
-      .catch(() => setAiReady(false));
-  }, []);
+  /**
+   * Open onto the last conversation rather than a blank screen.
+   *
+   * Leaving this page used to discard everything that had been said, so coming
+   * back meant starting an interview over. The conversation is stored per person
+   * now and reopens where it stopped, pending proposal cards included.
+   */
+  const restore = async () => {
+    try {
+      const [latestResponse, listResponse] = await Promise.all([
+        fetch('/api/agent?latest=1', { cache: 'no-store' }),
+        fetch('/api/agent', { cache: 'no-store' }),
+      ]);
+      const list = await listResponse.json();
+      setAiReady(Boolean(list?.ai?.configured));
+      setHistory(Array.isArray(list?.conversations) ? list.conversations : []);
+      const latest = await latestResponse.json();
+      if (latest?.conversationId && Array.isArray(latest.messages) && latest.messages.length) {
+        setConversationId(latest.conversationId);
+        setMessages(latest.messages.map((message: { role: string; content: string; metadata?: { proposal?: Proposal } | null }) => ({
+          role: message.role === 'user' ? 'user' as const : 'assistant' as const,
+          content: message.content,
+        })));
+        // A proposal that was waiting to be confirmed is still waiting.
+        const pending = latest.messages
+          .map((message: { metadata?: { proposal?: Proposal } | null }) => message.metadata?.proposal)
+          .filter(Boolean) as Proposal[];
+        if (pending.length) setProposals(pending);
+      }
+    } catch {
+      setAiReady(false);
+    }
+  };
+
+  useEffect(() => { void restore(); }, []);
+
+  const openConversation = async (id: string) => {
+    setShowHistory(false);
+    setProposals([]);
+    try {
+      const response = await fetch(`/api/agent?conversationId=${id}`, { cache: 'no-store' });
+      const payload = await response.json();
+      if (!response.ok) return;
+      setConversationId(payload.conversationId ?? id);
+      setMessages((payload.messages ?? []).map((message: { role: string; content: string }) => ({
+        role: message.role === 'user' ? 'user' as const : 'assistant' as const,
+        content: message.content,
+      })));
+    } catch {
+      setError('That conversation could not be opened.');
+    }
+  };
+
+  const startNew = () => {
+    setShowHistory(false);
+    setConversationId(null);
+    setProposals([]);
+    setNotice('');
+    setError('');
+    setMessages([{ role: 'assistant', content: 'Tell me about the organisation and I will file it. Start with the name — for example "Harbour Logistics Ltd". I will ask for the rest, including whether BKM services them or pays them.' }]);
+  };
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
 
@@ -60,7 +118,10 @@ export default function ClientAgent({ onChanged }: { onChanged: () => void }) {
       const response = await fetch('/api/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: next }),
+        // Only the new message once the conversation is stored server-side; the
+        // server already holds the rest. Sending the whole transcript again
+        // duplicated every earlier turn in the history.
+        body: JSON.stringify(conversationId ? { conversationId, message: text } : { messages: next }),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -68,6 +129,7 @@ export default function ClientAgent({ onChanged }: { onChanged: () => void }) {
         return;
       }
       setMessages((items) => [...items, { role: 'assistant', content: payload.reply || 'I did not have a reply.' }]);
+      if (payload.conversationId) setConversationId(payload.conversationId);
       if (payload.proposals?.length) setProposals((items) => [...items, ...payload.proposals]);
     } catch {
       setError('The agent could not be reached. Check the connection and try again.');
@@ -116,7 +178,7 @@ export default function ClientAgent({ onChanged }: { onChanged: () => void }) {
   const suggestions = ['We have a new supplier called Harbour Logistics', 'Check the register for broken or incomplete records', 'What needs fixing on our client records?'];
 
   return <div className="panel flex min-h-[560px] flex-col overflow-hidden" data-testid="client-agent">
-    <div className="flex items-center justify-between border-b border-line px-5 py-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
       <div className="flex items-center gap-3">
         <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-50 text-teal-700"><Bot size={17} /></span>
         <div>
@@ -124,10 +186,42 @@ export default function ClientAgent({ onChanged }: { onChanged: () => void }) {
           <div className="text-[11px] text-slate-400">Files records, classifies them, finds broken ones</div>
         </div>
       </div>
-      {aiReady === false
-        ? <span className="flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-800"><TriangleAlert size={11} /> No model configured</span>
-        : <span className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Live</span>}
+      <div className="flex items-center gap-2">
+        {aiReady === false
+          ? <span className="flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-800"><TriangleAlert size={11} /> No model</span>
+          : <span className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-700"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Live</span>}
+        <button type="button" data-testid="agent-history-toggle" onClick={() => setShowHistory((value) => !value)} className="flex items-center gap-1.5 rounded-md border border-line bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:border-teal-300 hover:text-teal-700">
+          <History size={12} /> Past chats{history.length ? ` (${history.length})` : ''}
+        </button>
+        <button type="button" data-testid="agent-new-chat" onClick={startNew} className="flex items-center gap-1.5 rounded-md border border-line bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:border-teal-300 hover:text-teal-700">
+          <Plus size={12} /> New
+        </button>
+      </div>
     </div>
+
+    {showHistory && (
+      <div data-testid="agent-history" className="border-b border-line bg-canvas px-5 py-3">
+        {history.length === 0 ? (
+          <p className="text-[11px] text-slate-500">No past conversations yet. Anything you say here is kept, so you can leave and come back to it.</p>
+        ) : (
+          <ul className="max-h-56 space-y-1 overflow-y-auto">
+            {history.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  data-testid="agent-history-item"
+                  onClick={() => void openConversation(item.id)}
+                  className={`flex w-full items-center justify-between gap-3 rounded-md border px-2.5 py-2 text-left text-[11px] transition ${item.id === conversationId ? 'border-teal-300 bg-white font-semibold text-teal-800' : 'border-transparent bg-white/60 text-slate-600 hover:border-line hover:bg-white'}`}
+                >
+                  <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                  <span className="shrink-0 text-[10px] text-slate-400">{item.messageCount} message{item.messageCount === 1 ? '' : 's'}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )}
 
     <div className="flex-1 space-y-4 overflow-y-auto p-5">
       {messages.map((message, index) => (

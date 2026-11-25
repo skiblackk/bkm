@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createTask, getSnapshot, updateTask } from '@/lib/data-access';
 import { z } from 'zod';
+import { appendMessages, startConversation } from '@/lib/conversations';
 import { hasPermission, requirePermission } from '@/lib/auth';
 import { askCeoCopilot } from '@/lib/ceo-copilot';
 import { hasSupabaseConfiguration } from '@/lib/runtime-mode';
@@ -10,6 +11,7 @@ import { answerDocumentQuestion } from '@/lib/document-analysis';
 const schema = z.object({
   question: z.string().min(2).max(2000),
   documentId: z.string().min(1).max(64).optional(),
+  conversationId: z.string().uuid().optional(),
 });
 
 async function findRequestedTask(question: string) {
@@ -21,8 +23,21 @@ export async function POST(request: Request) {
   try {
     if (!hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
     const session = await requirePermission('use_assistant');
-    const { question, documentId } = schema.parse(await request.json());
+    const { question, documentId, conversationId: incomingId } = schema.parse(await request.json());
     const lower = question.toLowerCase();
+
+    // Every answer is written down, whichever branch produces it, so leaving the
+    // panel no longer discards the conversation. A storage problem must never
+    // withhold the answer itself, so failures here are logged and ignored.
+    let conversationId = incomingId ?? null;
+    if (!conversationId) conversationId = await startConversation(session.account, 'assistant', question);
+    const remember = async (answer: string, metadata?: Record<string, unknown> | null) => {
+      if (!conversationId) return;
+      await appendMessages(conversationId, [
+        { role: 'user', content: question },
+        { role: 'assistant', content: answer, metadata: metadata ?? null },
+      ]);
+    };
 
     // A question about an uploaded file is answered from that file, not from
     // company records. The figures are computed server-side.
@@ -30,7 +45,9 @@ export async function POST(request: Request) {
       const document = await getUploadedDocument(documentId, session.account);
       if (!document) return NextResponse.json({ error: 'That document is no longer available. Upload it again and ask in the same conversation.' }, { status: 404 });
       const result = await answerDocumentQuestion({ filename: document.filename, text: document.extractedText, grid: document.grid, warnings: document.warnings }, question);
+      await remember(result.answer, { tool: 'document_analysis' });
       return NextResponse.json({
+        conversationId,
         answer: result.answer,
         tool: 'document_analysis',
         recordCount: result.analysis.ledger.length,
@@ -45,17 +62,20 @@ export async function POST(request: Request) {
       if (!hasPermission(session, 'manage_tasks')) throw new Error('Task-management permission is required for assistant task creation.');
       const title = question.replace(/.*?(?:create|add|make|open)\s+(?:a\s+)?task\s*(?:to|for|called|named)?\s*/i, '').trim().replace(/[.?!]+$/, '') || 'Follow up on requested work';
       const snapshot = await createTask({ title });
-      return NextResponse.json({ answer: `I created “${title}” in the task register as Not Started. It is ready for assignment and review.`, tool: 'create_task', recordCount: snapshot.tasks.length, source: 'assistant action' });
+      await remember(`I created “${title}” in the task register as Not Started. It is ready for assignment and review.`, { tool: 'create_task' });
+      return NextResponse.json({ conversationId, answer: `I created “${title}” in the task register as Not Started. It is ready for assignment and review.`, tool: 'create_task', recordCount: snapshot.tasks.length, source: 'assistant action' });
     }
     if (/(mark|set|move|change).*\s(complete|completed|done)/.test(lower)) {
       if (!hasPermission(session, 'manage_tasks')) throw new Error('Task-management permission is required for assistant task updates.');
       const task = await findRequestedTask(question);
       if (!task) return NextResponse.json({ answer: 'I could not identify the task to mark complete. Include a distinctive part of its title.', tool: 'task_action_needs_clarification', recordCount: 0, source: 'assistant action' });
       const snapshot = await updateTask(task.id, { status: 'Completed' });
-      return NextResponse.json({ answer: `I marked “${task.title}” as Completed in the task register.`, tool: 'complete_task', recordCount: snapshot?.tasks.length ?? 0, source: 'assistant action' });
+      await remember(`I marked “${task.title}” as Completed in the task register.`, { tool: 'complete_task' });
+      return NextResponse.json({ conversationId, answer: `I marked “${task.title}” as Completed in the task register.`, tool: 'complete_task', recordCount: snapshot?.tasks.length ?? 0, source: 'assistant action' });
     }
     const result = await askCeoCopilot(question, session);
-    return NextResponse.json({ ...result, tool: 'live_grounded_copilot', recordCount: result.evidence.length, source: `live model ${result.model}` });
+    await remember(result.answer, { tool: 'live_grounded_copilot' });
+    return NextResponse.json({ conversationId, ...result, tool: 'live_grounded_copilot', recordCount: result.evidence.length, source: `live model ${result.model}` });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Assistant could not complete the request.';
     // Configuration and provider failures must be visible, never masked by a

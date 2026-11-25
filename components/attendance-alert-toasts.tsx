@@ -58,6 +58,8 @@ export default function AttendanceAlertToasts() {
   const [toasts, setToasts] = useState<Notification[]>([]);
   const seen = useRef<Set<string>>(new Set());
   const ready = useRef(false);
+  // Collapsed until asked for: a notification must not cover the page it is about.
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     seen.current = readSeen();
@@ -105,13 +107,31 @@ export default function AttendanceAlertToasts() {
   if (!toasts.length) return null;
 
   return (
-    // Anchored bottom-right, not under the header. At top-right the stack sat
-    // directly over the page's primary action (the "Add client" button on the
-    // Clients screen), so an unread alert silently blocked the work it was
-    // alerting about. Bottom-right keeps it clear of action rows, the height is
-    // capped so a run of missed check-ins cannot bury the page, and a single
-    // control clears the whole stack.
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[70] flex max-h-[min(60vh,32rem)] w-[min(390px,calc(100vw-2rem))] flex-col gap-3 overflow-y-auto overscroll-contain" role="status" aria-live="polite" aria-label="Attendance alerts">
+    // Collapsed to a single pill by default.
+    //
+    // Every position for a stack of these cards obstructs something: under the
+    // header it covered the primary action ("Add client"), along the bottom it
+    // covers the message box on the assistant screens. A notification must not
+    // block the work it is notifying about, so the cards stay out of the layout
+    // until asked for — one counter, one click.
+    <div className="pointer-events-none fixed bottom-4 right-4 z-[70] flex w-[min(390px,calc(100vw-2rem))] flex-col items-end gap-2" role="status" aria-live="polite" aria-label="Attendance alerts">
+      {!expanded && (
+        <button
+          type="button"
+          data-testid="attendance-alert-pill"
+          onClick={() => setExpanded(true)}
+          className="pointer-events-auto flex items-center gap-2 rounded-full border border-gold/50 bg-white pl-2.5 pr-3.5 py-2 text-[11px] font-semibold text-navy shadow-deep transition hover:border-gold"
+        >
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">{toasts.length}</span>
+          attendance alert{toasts.length === 1 ? '' : 's'}
+          <span className="text-[10px] font-normal text-slate-400">click to review</span>
+        </button>
+      )}
+      {expanded && (
+        <div data-testid="attendance-alert-stack" className="pointer-events-auto flex max-h-[min(60vh,30rem)] w-full flex-col gap-2 overflow-y-auto overscroll-contain">
+          <button type="button" onClick={() => setExpanded(false)} className="self-end rounded-md border border-line bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500 shadow-sm hover:border-gold hover:text-navy">
+            Hide
+          </button>
       {toasts.length > 1 && (
         <button
           type="button"
@@ -153,6 +173,8 @@ export default function AttendanceAlertToasts() {
           </div>
         );
       })}
+        </div>
+      )}
     </div>
   );
 }

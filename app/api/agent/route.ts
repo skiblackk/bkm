@@ -6,6 +6,7 @@ import { createClient, updateClient } from '@/lib/data-access';
 import { addServiceCharge } from '@/lib/data-access';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
 import { recordAudit } from '@/lib/data-access';
+import { appendMessages, latestConversation, listConversations, loadMessages, ownsConversation, startConversation, type StoredMessage } from '@/lib/conversations';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -111,6 +112,37 @@ function registerReady(history: Array<{ role: string; content: string }>) {
   return hasEmail && hasDirection && hasTrade;
 }
 
+
+/** Stored turns for this conversation, as the chat format the model expects. */
+async function loadStored(profileId: string, conversationId: string) {
+  const messages: StoredMessage[] = await loadMessages(profileId, conversationId, 'agent');
+  return messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map((message) => ({ role: message.role as 'user' | 'assistant', content: message.content }));
+}
+
+/**
+ * Write the turn down.
+ *
+ * A pending proposal rides along in the message metadata, so a conversation
+ * reopened tomorrow still shows the card that was waiting to be confirmed
+ * instead of a reply that refers to a card nobody can see.
+ */
+async function persistTurn(
+  profileId: string,
+  conversationId: string | null,
+  history: Array<{ role: 'user' | 'assistant'; content: string }>,
+  reply: string,
+  proposal: AgentProposal | null,
+) {
+  if (!conversationId) return;
+  const lastUser = [...history].reverse().find((entry) => entry.role === 'user');
+  await appendMessages(conversationId, [
+    ...(lastUser ? [{ role: 'user' as const, content: lastUser.content }] : []),
+    { role: 'assistant' as const, content: reply, metadata: proposal ? { proposal } : null },
+  ]);
+}
+
 async function requireAgentSession() {
   const session = await getDemoSession();
   if (!session) return { error: NextResponse.json({ error: 'Sign-in is required.' }, { status: 401 }) } as const;
@@ -118,14 +150,36 @@ async function requireAgentSession() {
   return { session } as const;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const auth = await requireAgentSession();
   if ('error' in auth) return auth.error;
   const status = aiStatus();
+  const url = new URL(request.url);
+
+  // ?conversationId=... reopens a stored conversation, messages and pending
+  // proposal cards included, so closing the screen is not the same as losing it.
+  const conversationId = url.searchParams.get('conversationId');
+  if (conversationId) {
+    const messages = await loadMessages(auth.session.account, conversationId, 'agent');
+    return NextResponse.json({ conversationId, messages });
+  }
+
+  // ?latest=1 opens whichever conversation was last spoken in, which is what the
+  // panel wants when someone navigates back to it.
+  if (url.searchParams.get('latest') === '1') {
+    const id = await latestConversation(auth.session.account, 'agent');
+    if (id) {
+      const messages = await loadMessages(auth.session.account, id, 'agent');
+      return NextResponse.json({ conversationId: id, messages });
+    }
+  }
+
+  const conversations = await listConversations(auth.session.account, 'agent');
   return NextResponse.json({
     ai: status,
     tools: AGENT_TOOL_SPECS.map((spec) => ({ name: spec.name, description: spec.description })),
     canWrite: auth.session.isAdmin || hasPermission(auth.session, 'manage_clients'),
+    conversations,
   });
 }
 
@@ -143,12 +197,38 @@ export async function POST(request: Request) {
   }
 
   try {
-    const input = await request.json() as { messages?: Array<{ role: 'user' | 'assistant'; content: string }> };
-    const history = (input.messages ?? [])
-      .filter((message) => message.role === 'user' || message.role === 'assistant')
-      .slice(-10)
-      .map((message) => ({ role: message.role, content: String(message.content ?? '').slice(0, 4000) }));
+    const input = await request.json() as {
+      messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+      conversationId?: string | null;
+      /** The single new message, when the panel is continuing a stored conversation. */
+      message?: string;
+    };
+
+    // Two ways in. A panel that just opened sends the whole conversation it is
+    // displaying; a panel continuing a stored one sends only the new message and
+    // the id. Both end up as the same history, and both are written down, so
+    // leaving the screen no longer destroys anything.
+    let conversationId = String(input.conversationId ?? '').trim() || null;
+    if (conversationId && !(await ownsConversation(session.account, conversationId, 'agent'))) {
+      conversationId = null; // unknown or someone else's: start a fresh one rather than fail
+    }
+
+    let history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+    if (conversationId && input.message) {
+      const stored = await loadStored(session.account, conversationId);
+      const fresh = String(input.message).slice(0, 4000);
+      history = [...stored.slice(-9), { role: 'user' as const, content: fresh }];
+    } else {
+      history = (input.messages ?? [])
+        .filter((message) => message.role === 'user' || message.role === 'assistant')
+        .slice(-10)
+        .map((message) => ({ role: message.role as 'user' | 'assistant', content: String(message.content ?? '').slice(0, 4000) }));
+    }
     if (!history.length) return NextResponse.json({ error: 'Say something to start.' }, { status: 400 });
+
+    if (!conversationId) {
+      conversationId = await startConversation(session.account, 'agent', history[0].content);
+    }
 
     const model = await resolveModel(provider);
     const messages: ChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }, ...history];
@@ -206,11 +286,14 @@ export async function POST(request: Request) {
           round -= 1; // the insistence round does not count against the budget
           continue;
         }
+        const replyText = message.content ?? '';
+        await persistTurn(session.account, conversationId, history, replyText, proposal);
         return NextResponse.json({
-          reply: message.content ?? '',
+          reply: replyText,
           proposals: proposal ? [proposal] : [],
           trace,
           model,
+          conversationId,
         });
       }
 
@@ -257,11 +340,13 @@ export async function POST(request: Request) {
         : 'I gathered what I could but did not reach a conclusion. Try stating the organisation name and what BKM does for or with them.';
     }
 
+    await persistTurn(session.account, conversationId, history, reply, finalProposal);
     return NextResponse.json({
       reply,
       proposals: finalProposal ? [finalProposal] : [],
       trace,
       model,
+      conversationId,
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'The agent could not complete that.' }, { status: 500 });

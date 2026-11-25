@@ -65,6 +65,16 @@ const canManageClients = (session: DemoSession) =>
 
 export const AGENT_TOOL_SPECS: AgentToolSpec[] = [
   {
+    name: 'lookup_person',
+    description:
+      'Look up a person by name across the whole system: staff accounts, client records and client contacts. Use whenever someone asks who a person is or whether a name is already known. Reports every role a person holds, so it never says "staff" and stops when the same person is also a client.',
+    parameters: {
+      type: 'object',
+      properties: { name: { type: 'string', description: 'Person name, or part of it' } },
+      required: ['name'],
+    },
+  },
+  {
     name: 'find_client',
     description:
       'Search the client register by name, industry or contact. Use before creating anything, to avoid duplicates, and before editing or deleting, to get the exact id.',
@@ -230,6 +240,67 @@ export async function executeAgentTool(
 
   try {
     switch (name) {
+      case 'lookup_person': {
+        // A person in this system can be staff, a client contact, and the client
+        // itself all at once. Answering from one table gives a true but useless
+        // half-answer, so every source is checked and the roles are combined.
+        if (!canManageClients(session)) return deny(name, ['manage_clients']);
+        const person = str('name');
+        if (person.length < 2) return { tool: name, ok: false, summary: 'Give me a name to look up.' };
+        const admin = db();
+        const like = `%${person.replace(/[%_]/g, '')}%`;
+        const [{ data: staff }, { data: contacts }, { data: clientRows }] = await Promise.all([
+          admin.from('profiles').select('id, full_name, email, is_admin, active, approval_status, roles(name)').ilike('full_name', like),
+          admin.from('client_contacts').select('full_name, email, phone, is_primary, clients(id, name)').ilike('full_name', like),
+          admin.from('clients').select('id, name, industry, location, status, relationship_type').ilike('name', like).is('deleted_at', null),
+        ]);
+
+        const groups = new Map<string, { name: string; roles: string[]; notes: string[] }>();
+        const ensure = (fullName: string) => {
+          const key = fullName.trim().toLowerCase();
+          if (!groups.has(key)) groups.set(key, { name: fullName, roles: [], notes: [] });
+          return groups.get(key)!;
+        };
+        for (const row of (staff ?? []) as Array<{ full_name: string; email: string; is_admin: boolean; active: boolean; approval_status: string; roles: { name?: string } | Array<{ name?: string }> | null }>) {
+          const entry = ensure(row.full_name);
+          const roleName = (Array.isArray(row.roles) ? row.roles[0]?.name : (row.roles as { name?: string } | null)?.name) ?? 'Staff';
+          entry.roles.push(row.is_admin ? 'Administrator' : roleName);
+          entry.notes.push(`${row.email}${row.active ? '' : ' (account inactive)'}${row.approval_status === 'pending' ? ' (awaiting approval)' : ''}`);
+        }
+        for (const row of (contacts ?? []) as Array<{ full_name: string; email: string; phone: string; is_primary: boolean; clients: { name: string } | Array<{ name: string }> | null }>) {
+          const linked = Array.isArray(row.clients) ? row.clients[0] : row.clients;
+          if (!linked) continue;
+          const entry = ensure(row.full_name);
+          if (!entry.roles.includes('Client contact')) entry.roles.push('Client contact');
+          entry.notes.push(`${row.is_primary ? 'primary contact' : 'contact'} at ${linked.name}`);
+        }
+        for (const row of (clientRows ?? []) as Array<{ name: string; industry: string; location: string; status: string; relationship_type: string }>) {
+          const entry = ensure(row.name);
+          entry.roles.push(row.relationship_type === 'vendor' ? 'Supplier paid by BKM' : 'Client serviced by BKM');
+          entry.notes.push(`${row.industry || 'no industry'} · ${row.location || 'no location'} · ${row.status}`);
+        }
+
+        const found = Array.from(groups.values());
+        if (!found.length) {
+          return {
+            tool: name, ok: true,
+            summary: `Nobody called "${person}" appears as staff, a client contact, or a client record. They are not in the system yet.`,
+            data: { people: [] },
+          };
+        }
+        const lines = found.map((entry) => {
+          const roles = entry.roles.length ? entry.roles.join(' and ') : 'no role recorded';
+          const notes = entry.notes.length ? ` — ${entry.notes.join('; ')}` : '';
+          return `- ${entry.name}: ${roles}${notes}`;
+        });
+        const multiple = found.filter((entry) => entry.roles.length > 1).length;
+        return {
+          tool: name, ok: true,
+          summary: `${found.length} match(es) for "${person}":\n${lines.join('\n')}${multiple ? `\n${multiple} of them hold more than one role.` : ''}`,
+          data: { people: found },
+        };
+      }
+
       case 'find_client': {
         if (!canManageClients(session)) return deny(name, ['manage_clients']);
         const rows = await findClientRows(str('query'), str('include_deleted') === 'true');
