@@ -11,7 +11,10 @@ import { answerDocumentQuestion } from '@/lib/document-analysis';
 const schema = z.object({
   question: z.string().min(2).max(2000),
   documentId: z.string().min(1).max(64).optional(),
-  conversationId: z.string().uuid().optional(),
+  conversationId: z.preprocess(
+    (value) => (value === null || value === '' ? undefined : value),
+    z.string().uuid().optional(),
+  ),
 });
 
 async function findRequestedTask(question: string) {

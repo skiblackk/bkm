@@ -211,7 +211,7 @@ const ASSET_WORDS = /cash|bank|receivable|debtor|inventory|stock|prepaid|equipme
 const LIABILITY_WORDS = /payable|creditor|accrual|loan|borrowing|overdraft|mortgage|lease liabilit|tax payable|vat payable|provision|deferred income|current liabilit|non-current liabilit/i;
 const EQUITY_WORDS = /capital|equity|retained|drawings|dividend|owner|share|reserve/i;
 const REVENUE_WORDS = /revenue|sales|turnover|income|fees? (earned|income)|commission|interest received|other income/i;
-const EXPENSE_WORDS = /expense|cost of sales|salary|salar|wages?|payroll|rent|utilit|electric|water|internet|telephone|transport|fuel|travel|insurance|depreciation|amortisation|amortization|professional|audit fee|advertis|market|repair|maintenance|stationery|supplies|software|subscription|bank charge|interest (paid|expense)|training|licen[cs]e|permit|security|cleaning|catering|hospitality|printing|postage|courier|consult|subcontract|director/i;
+const EXPENSE_WORDS = /expense|cost|purchase|salary|salar|wages?|payroll|rent|utilit|electric|water|internet|telephone|transport|fuel|travel|insurance|depreciation|amortisation|amortization|professional|audit fee|advertis|market|repair|maintenance|stationery|supplies|software|subscription|bank charge|interest (paid|expense)|training|licen[cs]e|permit|security|cleaning|catering|hospitality|printing|postage|courier|consult|subcontract|director/i;
 
 type Section = 'assets' | 'liabilities' | 'equity' | 'revenue' | 'expenses';
 
