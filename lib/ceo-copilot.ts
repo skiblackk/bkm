@@ -36,6 +36,10 @@ async function buildContext(session: DemoSession) {
 
   const results: Array<{ tool: string; summary: string; data?: unknown; denied?: boolean; scope?: string }> = [];
   const wanted: Array<[string, Record<string, unknown>]> = [
+    // The register is the question people actually ask. Without it the assistant
+    // cheerfully reported "no active client data" while five clients sat in the
+    // database.
+    ['client_portfolio', {}],
     ['attendance_summary', { from: monthStart, to: today }],
     ['task_workload', {}],
     ['pending_approvals', {}],

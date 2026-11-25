@@ -138,6 +138,7 @@ export const TOOL_SPECS: ToolSpec[] = [
   { name: 'system_health', description: 'Integration and webhook connection status and configuration gaps.', parameters: { type: 'object', properties: {} } },
   { name: 'employee_directory', description: 'Active employee list with roles and approval status.', parameters: { type: 'object', properties: {} } },
   { name: 'lookup_person', description: 'Look up a person by name across the whole system: staff accounts, client records they are the primary contact for, and client contacts. Use this for any question about who someone is. Returns every role a person holds, not just the first one found.', parameters: { type: 'object', properties: { name: { type: 'string', description: 'Person name, or part of it' } }, required: ['name'] } },
+  { name: 'client_portfolio', description: 'The firm\'s client and supplier register: how many active clients there are, their names, industries, locations, relationship (served by BKM or paid by BKM), status, and how many documents and open requests each has. Use this for any question about clients, the portfolio, or how many organisations the firm works with.', parameters: { type: 'object', properties: { status: { type: 'string', description: 'Active, On hold or Archived. Omit for all live clients.' } } } },
   { name: 'my_tasks', description: 'The requesting user\'s own tasks and deadlines.', parameters: { type: 'object', properties: {} } },
   { name: 'finance_overview', description: 'Journal entry counts by status and financial statement headlines from the accounting records.', parameters: { type: 'object', properties: {} } },
   { name: 'recent_broadcasts', description: 'Recent company announcements and broadcasts.', parameters: { type: 'object', properties: {} } },
@@ -294,6 +295,37 @@ export async function executeTool(name: string, args: Record<string, unknown>, s
         return {
           tool: name, ok: true, scope: 'staff, clients and contacts',
           summary: `${found.length} person/record(s) match "${wanted}":\n${lines.join('\n')}${multi ? `\n${multi} of them hold more than one role.` : ''}`,
+        };
+      }
+      case 'client_portfolio': {
+        if (!hasPermission(session, 'view_clients') && !hasPermission(session, 'manage_clients') && !session.isAdmin) return deny(name, ['view_clients', 'manage_clients']);
+        const admin = db();
+        const { data: rows } = await admin
+          .from('clients')
+          .select('id, name, industry, location, status, relationship_type, document_count, outstanding_requests, created_at')
+          .is('deleted_at', null)
+          .order('name');
+        const all = (rows ?? []) as Array<{ id: string; name: string; industry: string; location: string; status: string; relationship_type: string | null; document_count: number | null; outstanding_requests: number | null }>;
+        const wantedStatus = String(args.status ?? '').trim();
+        const list = wantedStatus ? all.filter((c) => c.status.toLowerCase() === wantedStatus.toLowerCase()) : all.filter((c) => c.status !== 'Archived');
+        const active = list.filter((c) => c.status === 'Active');
+        if (!list.length) return { tool: name, ok: true, summary: `The client register is empty${wantedStatus ? ` for status ${wantedStatus}` : ''}. No organisations have been added yet.`, data: { clients: [], counts: { total: 0, active: 0 } }, scope: 'client register' };
+        const described = list.slice(0, 40).map((c) => ({
+          name: c.name,
+          industry: c.industry,
+          location: c.location,
+          status: c.status,
+          relationship: c.relationship_type === 'vendor' ? 'paid by BKM (supplier)' : 'served by BKM (client)',
+          documents: c.document_count ?? 0,
+          openRequests: c.outstanding_requests ?? 0,
+        }));
+        const suppliers = described.filter((c) => c.relationship.startsWith('paid')).length;
+        return {
+          tool: name,
+          ok: true,
+          summary: `${active.length} active organisation${active.length === 1 ? '' : 's'} on the register (${list.length} in total including other statuses; ${suppliers} of them ${suppliers === 1 ? 'is a supplier' : 'are suppliers'} BKM pays). Active: ${active.map((c) => `${c.name} (${c.industry}, ${c.location})`).join('; ') || 'none'}.`,
+          data: { counts: { total: list.length, active: active.length, suppliers }, clients: described },
+          scope: 'client register (names, industry, location, status, relationship)',
         };
       }
       case 'my_tasks': {
