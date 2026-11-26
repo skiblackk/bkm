@@ -42,6 +42,17 @@ const nextConfig = {
   // '#standard-fonts/Helvetica'", so it stays external and is loaded from
   // node_modules at runtime.
   serverExternalPackages: ['pdfkit'],
+  // Vercel's file tracer does not follow pdfkit's `#standard-fonts/*` subpath
+  // import (an import-map entry, not a normal specifier), so the font metric
+  // files were left out of the deployed function and every PDF request failed
+  // with "Cannot find module .../Helvetica.cjs". Ship them explicitly, for both
+  // a flat node_modules and the pnpm store layout.
+  outputFileTracingIncludes: {
+    '/**': [
+      './node_modules/pdfkit/js/standard-fonts/**/*',
+      './node_modules/.pnpm/pdfkit@*/node_modules/pdfkit/js/standard-fonts/**/*',
+    ],
+  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
