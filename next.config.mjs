@@ -36,6 +36,12 @@ const securityHeaders = [
 const nextConfig = {
   // Do not advertise the framework on every response (BKM-05).
   poweredByHeader: false,
+  // pdfkit resolves its built-in font metrics through package subpath imports
+  // (pdfkit/js/data/Helvetica.afm and the #standard-fonts alias). Bundling it
+  // breaks those lookups on a serverless deploy with "Cannot find module
+  // '#standard-fonts/Helvetica'", so it stays external and is loaded from
+  // node_modules at runtime.
+  serverExternalPackages: ['pdfkit'],
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
