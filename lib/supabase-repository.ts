@@ -317,7 +317,14 @@ export async function getAttendance() {
   };
 }
 
-export async function updateAttendance(staffId: string, action: 'check-in' | 'check-out', note?: string) {
+export async function updateAttendance(
+  staffId: string,
+  action: 'check-in' | 'check-out',
+  note?: string,
+  // Who performed the action. Without this the audit row named the staff member
+  // by their uuid, which is what showed up in the administrator's activity feed.
+  actor?: { id: string; name: string; role: string } | null,
+) {
   const client = db();
   const today = businessDate();
   const { data: existing } = await client.from('attendance_records').select('*').eq('staff_id', staffId).eq('attendance_date', today).maybeSingle();
@@ -336,7 +343,19 @@ export async function updateAttendance(staffId: string, action: 'check-in' | 'ch
     const { error } = await client.from('attendance_records').update({ check_out: checkOut, duration_minutes: durationMinutesBetween(clock(existing.check_in) ?? checkOut, checkOut) }).eq('id', existing.id);
     if (error) throw new Error(error.message);
   }
-  await recordAudit({ actorId: staffId, actorName: staffId, actorRole: 'Team member', action, targetType: 'Attendance', targetId: staffId, detail: `${action} recorded for ${staffId}`, severity: 'info' });
+  const { data: subject } = await client.from('profiles').select('full_name, roles(name)').eq('id', staffId).maybeSingle();
+  const subjectRole = Array.isArray(subject?.roles) ? subject.roles[0] : subject?.roles;
+  const subjectName = String(subject?.full_name ?? 'Staff member');
+  await recordAudit({
+    actorId: actor?.id ?? staffId,
+    actorName: actor?.name ?? subjectName,
+    actorRole: actor?.role ?? (subjectRole as { name?: string } | null)?.name ?? 'Team member',
+    action,
+    targetType: 'Attendance',
+    targetId: staffId,
+    detail: `${action === 'check-in' ? 'Checked in' : 'Checked out'}: ${subjectName}${note ? ` — ${note}` : ''}`,
+    severity: 'info',
+  });
   // A late check-in alerts the administrator immediately. The alert is idempotent
   // and fully isolated: a notification problem must never fail or roll back the
   // attendance record that was just written.

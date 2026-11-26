@@ -125,7 +125,8 @@ export async function POST(request: Request) {
     if (input.action === 'attendance') {
       if (!session.isAdmin && session.staffId !== input.staffId) requireActionPermission(session, 'manage_attendance');
       else if (!session.isAdmin) requireActionPermission(session, 'record_own_attendance');
-      return NextResponse.json({ attendance: await updateAttendance(input.staffId, input.mode, input.note) });
+      const actor = { id: session.account, name: session.name, role: session.role };
+      return NextResponse.json({ attendance: await updateAttendance(input.staffId, input.mode, input.note, actor) });
     }
 
     if (input.action === 'wipe-workspace-data') {

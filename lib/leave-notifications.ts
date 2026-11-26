@@ -92,3 +92,43 @@ export async function notifyLeaveSubmitted(input: {
     return 0;
   }
 }
+
+/**
+ * Notify the administrators that somebody asked for more access.
+ *
+ * The permission request that reaches this function used to be written to the
+ * database and then forgotten: it was not pushed to the administrators, it did
+ * not appear on the approvals feed the admin screen reads, and approving it did
+ * not grant anything. This is the first of those three fixes.
+ *
+ * The same function is used by the workspace request form and by the approvals
+ * API, so a request raised from either entry point is treated identically.
+ */
+export async function notifyAccessRequested(input: {
+  requesterId: string;
+  requesterName: string;
+  permission: string;
+  reason: string;
+  requestId: string;
+}): Promise<number> {
+  try {
+    const recipients = (await listAdministratorIds()).filter((id) => id !== input.requesterId);
+    let written = 0;
+    for (const recipientId of recipients) {
+      const created = await createNotification({
+        recipientId,
+        category: 'access',
+        priority: 'high',
+        title: 'Permission request awaiting your decision',
+        body: `${input.requesterName} asked for ${input.permission.replace(/_/g, ' ')}. Reason: ${input.reason}`,
+        linkPath: '/admin?tab=access&view=requests',
+        relatedId: input.requestId,
+        dedupeKey: `access-request-${input.requestId}-${recipientId}`,
+      });
+      if (created) written += 1;
+    }
+    return written;
+  } catch {
+    return 0;
+  }
+}

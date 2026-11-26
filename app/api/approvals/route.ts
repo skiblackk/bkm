@@ -45,16 +45,63 @@ export async function POST(request: Request) {
     }
     if (input.action === 'decide') {
       const id = String(input.id ?? '');
-      const decision = input.decision === 'Approved' ? 'Approved' : 'Rejected';
+      const decision = input.decision === 'Approved' ? 'Approved' : input.decision === 'Cancelled' ? 'Cancelled' : 'Rejected';
       const { data: row } = await admin.from('approval_requests').select('*').eq('id', id).maybeSingle();
       if (!row) return NextResponse.json({ error: 'Request not found.' }, { status: 404 });
-      const isApprover = row.assigned_approver === session.account || hasPermission(session, 'assign_permissions') || session.isAdmin;
-      if (!isApprover) return NextResponse.json({ error: 'Only the assigned approver can decide this request.' }, { status: 403 });
-      const { error } = await admin.from('approval_requests').update({ status: decision, decision_note: String(input.note ?? '').slice(0, 1000), decided_at: new Date().toISOString() }).eq('id', id);
+      if (row.status !== 'Pending') return NextResponse.json({ error: `This request was already ${row.status.toLowerCase()}.` }, { status: 409 });
+      const isApprover = row.assigned_approver === session.account
+        || hasPermission(session, 'assign_permissions')
+        || hasPermission(session, 'revoke_permissions')
+        || session.isAdmin;
+      if (!isApprover) return NextResponse.json({ error: 'Only an administrator or the assigned approver can decide this request.' }, { status: 403 });
+
+      // The decision and, for an approved access request, the permission itself
+      // are written in one transaction. Approving used to change only the
+      // request's status, so the staff member stayed blocked while the
+      // administrator believed access had been granted.
+      const { data: decided, error } = await admin.rpc('decide_approval_request', {
+        p_request_id: id,
+        p_decision: decision,
+        p_actor: /^[0-9a-f-]{36}$/i.test(session.account) ? session.account : null,
+        p_actor_name: session.name,
+        p_note: String(input.note ?? '').slice(0, 1000),
+      });
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      await recordAudit({ actorId: session.account, actorName: session.name, actorRole: session.role, action: 'approval_decision', targetType: 'ApprovalRequest', targetId: id, detail: `${decision}: ${row.request_type}`, severity: 'change' });
-      await admin.from('notifications').insert({ recipient_id: row.requested_by, category: 'approvals', priority: 'normal', title: `Request ${decision.toLowerCase()}`, body: `${row.request_type} was ${decision.toLowerCase()}.`, link_path: '/workspace', related_type: 'approval_request', related_id: id }).then(() => undefined, () => undefined);
-      return NextResponse.json({ audit: await getAuditEvents() });
+      const result = (decided ?? {}) as { granted?: boolean; permission?: string | null };
+
+      const permission = result.permission ?? null;
+      const detail = decision === 'Approved' && result.granted && permission
+        ? `Access approved: ${permission.replace(/_/g, ' ')} granted to the requester.`
+        : `${decision}: ${String(row.request_type).replace(/_/g, ' ')}${permission ? ` (${permission.replace(/_/g, ' ')})` : ''}.`;
+      await recordAudit({ actorId: session.account, actorName: session.name, actorRole: session.role, action: 'approval_decision', targetType: 'ApprovalRequest', targetId: id, detail, severity: decision === 'Approved' ? 'security' : 'change' });
+
+      // Tell the person who asked, in their own notification centre.
+      await admin.from('notifications').insert({
+        recipient_id: row.requested_by,
+        category: 'access',
+        priority: decision === 'Approved' ? 'normal' : 'high',
+        title: decision === 'Approved'
+          ? (result.granted && permission ? `${permission.replace(/_/g, ' ')} approved` : 'Request approved')
+          : `Request ${decision.toLowerCase()}`,
+        body: decision === 'Approved'
+          ? (result.granted && permission
+              ? `You can now ${permission.replace(/_/g, ' ')}. Sign out and back in if the workspace does not show it immediately.`
+              : `Your request was approved by ${session.name}.`)
+          : `Your request was ${decision.toLowerCase()} by ${session.name}.${input.note ? ` Note: ${input.note}` : ''}`,
+        link_path: '/',
+        related_type: 'approval_request',
+        related_id: id,
+      }).then(() => undefined, () => undefined);
+
+      return NextResponse.json({
+        audit: await getAuditEvents(),
+        status: decision,
+        granted: result.granted === true,
+        permission,
+        message: decision === 'Approved'
+          ? (result.granted && permission ? `Approved — ${permission.replace(/_/g, ' ')} is now granted.` : 'Approved.')
+          : `${decision}.`,
+      });
     }
     if (input.action === 'cancel') {
       const id = String(input.id ?? '');

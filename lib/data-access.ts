@@ -38,9 +38,14 @@ export async function getAttendance() {
   return production.getAttendance();
 }
 
-export async function updateAttendance(staffId: string, action: 'check-in' | 'check-out', note?: string) {
+export async function updateAttendance(
+  staffId: string,
+  action: 'check-in' | 'check-out',
+  note?: string,
+  actor?: { id: string; name: string; role: string } | null,
+) {
   assertRepositoryReady();
-  return production.updateAttendance(staffId, action, note);
+  return production.updateAttendance(staffId, action, note, actor);
 }
 
 export async function getInternalMessages(): Promise<InternalMessage[]> {
