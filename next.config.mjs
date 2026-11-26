@@ -36,19 +36,17 @@ const securityHeaders = [
 const nextConfig = {
   // Do not advertise the framework on every response (BKM-05).
   poweredByHeader: false,
-  // pdfkit resolves its built-in font metrics through package subpath imports
-  // (pdfkit/js/data/Helvetica.afm and the #standard-fonts alias). Bundling it
-  // breaks those lookups on a serverless deploy with "Cannot find module
-  // '#standard-fonts/Helvetica'", so it stays external and is loaded from
-  // node_modules at runtime.
-  serverExternalPackages: ['pdfkit'],
-  // Vercel's file tracer does not follow pdfkit's `#standard-fonts/*` subpath
-  // import (an import-map entry, not a normal specifier), so the font metric
-  // files were left out of the deployed function and every PDF request failed
-  // with "Cannot find module .../Helvetica.cjs". Ship them explicitly, for both
-  // a flat node_modules and the pnpm store layout.
+  // pdfkit resolves its built-in Helvetica metrics at runtime through an
+  // import-map subpath (`#standard-fonts/*.cjs`). That specifier is not a file
+  // path the bundler or Vercel's tracer can follow, so the deployed function
+  // shipped without the metrics and every export failed with "Cannot find
+  // module .../Helvetica.cjs". Shipping the files with the trace did not help —
+  // the runtime lookup is inside the pnpm store path. Including pdfkit in the
+  // bundle instead lets the bundler resolve and inline those imports, which is
+  // what the local build was already doing successfully.
+  transpilePackages: ['pdfkit'],
   outputFileTracingIncludes: {
-    '/**': [
+    '/api/quotations/**': [
       './node_modules/pdfkit/js/standard-fonts/**/*',
       './node_modules/.pnpm/pdfkit@*/node_modules/pdfkit/js/standard-fonts/**/*',
     ],
