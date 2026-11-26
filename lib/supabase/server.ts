@@ -16,6 +16,12 @@ export async function createSupabaseServerClient() {
           cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, {
             ...options,
             path: '/',
+            // BKM-04 follow-up: auth is server-rendered only — no browser
+            // Supabase client and nothing reads document.cookie — so the
+            // session token has no reason to be visible to JavaScript. Without
+            // this, one injected script could read the token and replay the
+            // session from anywhere until it expired.
+            httpOnly: true,
             sameSite: secureContext ? 'none' : 'lax',
             secure: secureContext,
           }));

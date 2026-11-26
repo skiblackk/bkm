@@ -19,6 +19,7 @@ export async function middleware(request: NextRequest) {
         cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, {
           ...options,
           path: '/',
+          httpOnly: true,
           sameSite: secureContext ? 'none' : 'lax',
           secure: secureContext,
         }));
