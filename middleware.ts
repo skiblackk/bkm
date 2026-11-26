@@ -20,7 +20,7 @@ export async function middleware(request: NextRequest) {
           ...options,
           path: '/',
           httpOnly: true,
-          sameSite: secureContext ? 'none' : 'lax',
+          sameSite: 'lax',
           secure: secureContext,
         }));
       },

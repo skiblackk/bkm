@@ -74,9 +74,40 @@ function friendlyValidationError(error: z.ZodError): { error: string; fields: Re
 
 const CLIENT_PERMISSION = new Set(['createClient', 'updateClient', 'setClientStatus', 'createQuotation', 'setClientRelationship', 'setClientLogo', 'addServiceCharge', 'recordClientPayment', 'issueReceipt']);
 
+/**
+ * Cross-site request guard.
+ *
+ * These routes authenticate from a cookie, and a cross-site POST whose
+ * Content-Type is text/plain, application/x-www-form-urlencoded or
+ * multipart/form-data is a "simple" request: the browser sends it without a
+ * preflight, so the attacker never needs CORS permission and the victim's
+ * cookie rides along. Verified against production before this check existed —
+ * a text/plain POST from another origin reached the handler and acted.
+ *
+ * The application itself only ever posts application/json, so requiring that
+ * content type already stops every simple request. The Origin and Sec-Fetch-Site
+ * checks are the second layer, for a browser that ignores the first.
+ */
+function crossSiteRequest(request: Request): boolean {
+  const type = request.headers.get('content-type') ?? '';
+  if (!type.toLowerCase().startsWith('application/json')) return true;
+  const site = request.headers.get('sec-fetch-site');
+  if (site && site !== 'same-origin' && site !== 'none') return true;
+  const origin = request.headers.get('origin');
+  if (!origin) return false;
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
+  try {
+    return new URL(origin).host !== host;
+  } catch {
+    return true;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     if (!hasSupabaseConfiguration) return NextResponse.json({ error: 'The production Supabase repository is not configured.' }, { status: 503 });
+
+    if (crossSiteRequest(request)) return NextResponse.json({ error: 'This request was not made from the application.' }, { status: 403 });
 
     const body = await request.json().catch(() => null);
     if (body === null) return NextResponse.json({ error: 'The request body was not valid JSON.' }, { status: 400 });

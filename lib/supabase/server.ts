@@ -22,7 +22,7 @@ export async function createSupabaseServerClient() {
             // this, one injected script could read the token and replay the
             // session from anywhere until it expired.
             httpOnly: true,
-            sameSite: secureContext ? 'none' : 'lax',
+            sameSite: 'lax',
             secure: secureContext,
           }));
         } catch { /* Server Components cannot always mutate cookies. */ }
