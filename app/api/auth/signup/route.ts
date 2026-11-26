@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseAdminClient } from '@/lib/supabase/admin';
+import { THROTTLE_MESSAGE, recordSignupAttempt } from '@/lib/rate-limit';
 
 function initials(fullName: string) {
   return fullName.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase();
@@ -11,6 +12,16 @@ function initials(fullName: string) {
  * an administrator before it can access the workspace.
  */
 export async function POST(request: Request) {
+  // Account creation is unauthenticated by design — this is the one place a
+  // stranger can cause a write. Throttled per source so it cannot be used to
+  // spray accounts, without changing what a genuine first sign-up sees.
+  const forwarded = request.headers.get('x-forwarded-for');
+  const ip = forwarded ? forwarded.split(',')[0].trim() : (request.headers.get('x-real-ip') ?? 'unknown');
+  const gate = recordSignupAttempt(ip);
+  if (!gate.allowed) {
+    return NextResponse.json({ error: THROTTLE_MESSAGE }, { status: 429, headers: { 'Retry-After': String(gate.retryAfterSeconds) } });
+  }
+
   const body = await request.json().catch(() => ({}));
   const email = String(body.email ?? '').trim().toLowerCase();
   const password = String(body.password ?? '');

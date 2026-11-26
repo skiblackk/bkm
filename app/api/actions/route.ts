@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, updateClient, createQuotation, createReport, createTask, updateTask, setClientRelationship, setClientLogo, addServiceCharge, recordClientPayment, issueReceipt } from '@/lib/data-access';
 import { z } from 'zod';
-import { requirePermission } from '@/lib/auth';
+import { getDemoSession, requirePermission } from '@/lib/auth';
 import { isPermissionError } from '@/lib/permissions';
 import { hasSupabaseConfiguration } from '@/lib/runtime-mode';
 
@@ -81,6 +81,16 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => null);
     if (body === null) return NextResponse.json({ error: 'The request body was not valid JSON.' }, { status: 400 });
 
+    // Authentication first (BKM-03). This route used to validate the body
+    // before checking the session, so an unauthenticated caller could post a
+    // deliberately malformed action and read back the exact field names and
+    // enum vocabulary of a privileged write API from the 422. Two reads: a
+    // cheap gate here, and the permission check below once the action is known.
+    // Keeping both means an action added later that forgets its permission is
+    // still behind a sign-in.
+    const signedIn = await getDemoSession();
+    if (!signedIn) return NextResponse.json({ error: 'Sign in is required.' }, { status: 401 });
+
     const parsed = actionSchema.safeParse(body);
     if (!parsed.success) {
       // An unknown action is a bad request. A known action with bad fields is a
@@ -96,8 +106,10 @@ export async function POST(request: Request) {
     }
     const input = parsed.data;
 
-    const session = await requirePermission(CLIENT_PERMISSION.has(input.action) ? 'manage_clients' : input.action === 'createReport' ? 'view_finance' : 'manage_tasks');
-    const actor = { id: session.staffId ?? session.account, name: session.name, role: session.role };
+    // The action-specific permission check. `session` above only proved the
+    // caller is signed in; this proves they may perform this action.
+    const actionSession = await requirePermission(CLIENT_PERMISSION.has(input.action) ? 'manage_clients' : input.action === 'createReport' ? 'view_finance' : 'manage_tasks');
+    const actor = { id: actionSession.staffId ?? actionSession.account, name: actionSession.name, role: actionSession.role };
 
     if (input.action === 'createTask') return NextResponse.json({ snapshot: await createTask(input), message: 'Task created in the live workspace.' });
     if (input.action === 'updateTask') {
