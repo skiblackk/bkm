@@ -332,6 +332,11 @@ export function renderQuotationPdf(input: QuotationDocumentInput): Promise<Buffe
         size: 'A4',
         margin: 48,
         bufferPages: true,
+        // pdfkit defaults the initial font to Helvetica and resolves it lazily
+        // through createRequire on an import-map specifier, which fails inside
+        // a serverless bundle. Starting the document on the embedded brand face
+        // means that code path is never entered.
+        font: FONTS.regular,
         info: {
           Title: `Quotation ${input.quotation.number}`,
           Author: input.issuer.name,
